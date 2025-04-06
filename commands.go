@@ -2,7 +2,6 @@ package hermes
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/themedef/go-hermes/internal/contracts"
 	"strconv"
@@ -13,7 +12,7 @@ type CommandAPI struct {
 	db contracts.StoreHandler
 }
 
-func NewCommandAPI(db contracts.StoreHandler) *CommandAPI {
+func NewCommandAPI(db contracts.StoreHandler) contracts.CommandsHandler {
 	return &CommandAPI{db: db}
 }
 
@@ -50,7 +49,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		val, err := c.db.Get(ctx, key)
 		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+			if IsKeyNotFound(err) || IsKeyExpired(err) {
 				return "(nil)", nil
 			}
 			return "", err
@@ -151,7 +150,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		newVal, err := c.db.Incr(ctx, key)
 		if err != nil {
-			if errors.Is(err, ErrInvalidValueType) {
+			if IsInvalidValueType(err) {
 				return "(error) value is not an integer", nil
 			}
 			return "", err
@@ -165,7 +164,43 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		newVal, err := c.db.Decr(ctx, key)
 		if err != nil {
-			if errors.Is(err, ErrInvalidValueType) {
+			if IsInvalidValueType(err) {
+				return "(error) value is not an integer", nil
+			}
+			return "", err
+		}
+		return fmt.Sprintf("%d", newVal), nil
+
+	case "INCRBY":
+		if len(parts) < 3 {
+			return "", fmt.Errorf("Usage: INCRBY key increment")
+		}
+		key := parts[1]
+		inc, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid increment: %v", parts[2])
+		}
+		newVal, err := c.db.IncrBy(ctx, key, inc)
+		if err != nil {
+			if IsInvalidValueType(err) {
+				return "(error) value is not an integer", nil
+			}
+			return "", err
+		}
+		return fmt.Sprintf("%d", newVal), nil
+
+	case "DECRBY":
+		if len(parts) < 3 {
+			return "", fmt.Errorf("Usage: DECRBY key decrement")
+		}
+		key := parts[1]
+		dec, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid decrement: %v", parts[2])
+		}
+		newVal, err := c.db.DecrBy(ctx, key, dec)
+		if err != nil {
+			if IsInvalidValueType(err) {
 				return "(error) value is not an integer", nil
 			}
 			return "", err
@@ -201,7 +236,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		val, err := c.db.LPop(ctx, key)
 		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrEmptyList) {
+			if IsKeyNotFound(err) || IsEmptyList(err) {
 				return "(nil)", nil
 			}
 			return "", err
@@ -215,7 +250,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		val, err := c.db.RPop(ctx, key)
 		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrEmptyList) {
+			if IsKeyNotFound(err) || IsEmptyList(err) {
 				return "(nil)", nil
 			}
 			return "", err
@@ -287,7 +322,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		field := parts[2]
 		val, err := c.db.HGet(ctx, key, field)
 		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) {
+			if IsKeyNotFound(err) {
 				return "(nil)", nil
 			}
 			return "", err
@@ -301,7 +336,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		field := parts[2]
 		if err := c.db.HDel(ctx, key, field); err != nil {
-			if errors.Is(err, ErrKeyNotFound) {
+			if IsKeyNotFound(err) {
 				return "0", nil
 			}
 			return "", err
@@ -315,7 +350,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		hash, err := c.db.HGetAll(ctx, key)
 		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) {
+			if IsKeyNotFound(err) {
 				return "(empty list or set)", nil
 			}
 			return "", err
@@ -364,11 +399,26 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		if err != nil {
 			return "", fmt.Errorf("invalid TTL: %v", parts[2])
 		}
-		if err := c.db.UpdateTTL(ctx, key, ttl); err != nil {
-			if errors.Is(err, ErrKeyNotFound) {
-				return "false", nil
-			}
+		ok, err := c.db.Expire(ctx, key, ttl)
+		if err != nil {
 			return "", err
+		}
+		if !ok {
+			return "false", nil
+		}
+		return "OK", nil
+
+	case "PERSIST":
+		if len(parts) < 2 {
+			return "", fmt.Errorf("Usage: PERSIST key")
+		}
+		key := parts[1]
+		ok, err := c.db.Persist(ctx, key)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "false", nil
 		}
 		return "OK", nil
 
@@ -379,7 +429,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		_, ttl, err := c.db.GetWithDetails(ctx, key)
 		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+			if IsKeyNotFound(err) || IsKeyExpired(err) {
 				return "-2", nil
 			}
 			return "", err
@@ -396,7 +446,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		dtype, err := c.db.Type(ctx, key)
 		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) {
+			if IsKeyNotFound(err) {
 				return "(nil)", nil
 			}
 			return "", err
@@ -425,7 +475,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		val, ttl, err := c.db.GetWithDetails(ctx, key)
 		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+			if IsKeyNotFound(err) || IsKeyExpired(err) {
 				return "(nil)", nil
 			}
 			return "", err
@@ -439,9 +489,9 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		oldKey := parts[1]
 		newKey := parts[2]
 		if err := c.db.Rename(ctx, oldKey, newKey); err != nil {
-			if errors.Is(err, ErrKeyNotFound) {
+			if IsKeyNotFound(err) {
 				return "(nil)", nil
-			} else if errors.Is(err, ErrKeyExists) {
+			} else if IsKeyExists(err) {
 				return "(error) new key exists", nil
 			}
 			return "", err
@@ -455,7 +505,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		value := parts[1]
 		keys, err := c.db.FindByValue(ctx, value)
 		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) {
+			if IsKeyNotFound(err) {
 				return "Keys: []", nil
 			}
 			return "", err
@@ -486,7 +536,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		key := parts[1]
 		err := c.db.Delete(ctx, key)
 		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) {
+			if IsKeyNotFound(err) {
 				return "false", nil
 			}
 			return "", err
@@ -516,6 +566,8 @@ Available Commands:
   GETSET key new_value [ttl]
   INCR key
   DECR key
+  INCRBY key increment
+  DECRBY key decrement
   LPUSH key value
   RPUSH key value
   LPOP key
@@ -530,6 +582,7 @@ Available Commands:
   HLEN key
   EXISTS key
   EXPIRE key seconds
+  PERSIST key
   TTL key
   TYPE key
   GETWITHDETAILS key

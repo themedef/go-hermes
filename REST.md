@@ -6,39 +6,42 @@
 
 1. [Initialization](#initialization)
 2. [Core Methods](#core-methods)
-   - [Key-Value Operations](#key-value-operations)
-      - [Set](#set)
-      - [Get](#get)
-      - [SetNX](#setnx)
-      - [SetXX](#setxx)
-      - [SetCAS](#setcas)
-      - [GetSet](#getset)
-   - [Atomic Counters](#atomic-counters)
-      - [Incr](#incr)
-      - [Decr](#decr)
-   - [List Operations](#list-operations)
-      - [LPush](#lpush)
-      - [RPush](#rpush)
-      - [LPop](#lpop)
-      - [RPop](#rpop)
-      - [LRange](#lrange)
-      - [LLen](#llen)
-   - [Hash Operations](#hash-operations)
-      - [HSet](#hset)
-      - [HGet](#hget)
-      - [HDel](#hdel)
-      - [HGetAll](#hgetall)
-      - [HExists](#hexists)
-      - [HLen](#hlen)
-   - [Utility Methods](#utility-methods)
-      - [Exists](#exists)
-      - [UpdateTTL](#updatettl)
-      - [Type](#type)
-      - [GetWithDetails](#getwithdetails)
-      - [Rename](#rename)
-      - [FindByValue](#findbyvalue)
-      - [Delete](#delete)
-      - [DropAll](#dropall)
+    - [Key-Value Operations](#key-value-operations)
+        - [Set](#set)
+        - [Get](#get)
+        - [SetNX](#setnx)
+        - [SetXX](#setxx)
+        - [SetCAS](#setcas)
+        - [GetSet](#getset)
+    - [Atomic Counters](#atomic-counters)
+        - [Incr](#incr)
+        - [Decr](#decr)
+        - [IncrBy](#incrby)
+        - [DecrBy](#decrby)
+    - [List Operations](#list-operations)
+        - [LPush](#lpush)
+        - [RPush](#rpush)
+        - [LPop](#lpop)
+        - [RPop](#rpop)
+        - [LRange](#lrange)
+        - [LLen](#llen)
+    - [Hash Operations](#hash-operations)
+        - [HSet](#hset)
+        - [HGet](#hget)
+        - [HDel](#hdel)
+        - [HGetAll](#hgetall)
+        - [HExists](#hexists)
+        - [HLen](#hlen)
+    - [Utility Methods](#utility-methods)
+        - [Exists](#exists)
+        - [Expire](#expire)
+        - [Persist](#persist)
+        - [Type](#type)
+        - [GetWithDetails](#getwithdetails)
+        - [Rename](#rename)
+        - [FindByValue](#findbyvalue)
+        - [Delete](#delete)
+        - [DropAll](#dropall)
 3. [Global Error Codes](#global-errors)
 4. [Example Usage](#example-usage)
 
@@ -48,7 +51,7 @@
 
 To initialize and run the server, call:
 ```go
-handler := NewAPIHandler(ctx, db) 
+handler := NewAPIHandler(ctx, db)
 handler.RunServer("8080", "api", /* optional middlewares */)
 ```
 - **Port**: The port on which the HTTP server listens (e.g., `8080`).
@@ -85,7 +88,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 ```
 **Errors:**
 - **400 Bad Request**: If the request body is missing required fields or is improperly formatted.
-- **500 Internal Server Error**: In case of any unexpected errors (e.g., internal panics).
+- **500 Internal Server Error**: In case of any unexpected errors.
 
 ---
 
@@ -259,6 +262,58 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 **Errors:**
 - **400 Bad Request**: If the key exists but its value is not an integer.
 - **500 Internal Server Error**: For unexpected errors.
+
+---
+
+#### IncrBy
+**Endpoint**: `POST /incrby`  
+**Description**: Increments a key’s numeric value by a specified amount.
+- If the key doesn’t exist, it is created with the increment value.
+- If the key exists but is not an integer, returns an error.
+
+**Request Body**:
+```json
+{
+  "key": "counterKey",
+  "increment": 10
+}
+```
+**Response**:
+```json
+{
+  "key": "counterKey",
+  "value": 10
+}
+```
+**Errors:**
+- **400 Bad Request**: If the key exists but its value is not an integer.
+- **500 Internal Server Error**: For unexpected failures.
+
+---
+
+#### DecrBy
+**Endpoint**: `POST /decrby`  
+**Description**: Decrements a key’s numeric value by a specified amount.
+- If the key doesn’t exist, it is created with the negative of the decrement value.
+- If the key exists but is not an integer, returns an error.
+
+**Request Body**:
+```json
+{
+  "key": "counterKey",
+  "decrement": 5
+}
+```
+**Response**:
+```json
+{
+  "key": "counterKey",
+  "value": -5
+}
+```
+**Errors:**
+- **400 Bad Request**: If the key exists but its value is not an integer.
+- **500 Internal Server Error**: For unexpected failures.
 
 ---
 
@@ -546,9 +601,9 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 ---
 
-#### UpdateTTL
-**Endpoint**: `POST /ttl`  
-**Description**: Updates the TTL (time-to-live) for an existing key.  
+#### Expire
+**Endpoint**: `POST /expire`  
+**Description**: Sets a TTL for a key.  
 **Request Body**:
 ```json
 {
@@ -559,14 +614,37 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 **Response**:
 ```json
 {
-  "message": "TTL updated",
   "key": "myKey",
-  "ttl": 60
+  "ttl": 60,
+  "success": true
 }
 ```
 **Errors:**
-- **404 Not Found**: If the key is missing or expired.
-- **400 Bad Request**: If the request body is missing required fields or is malformed.
+- **404 Not Found**: If the key does not exist.
+- **400 Bad Request**: If the request body is invalid.
+- **500 Internal Server Error**: For unexpected errors.
+
+---
+
+#### Persist
+**Endpoint**: `POST /persist`  
+**Description**: Removes the TTL from a key, making it persistent.  
+**Request Body**:
+```json
+{
+  "key": "myKey"
+}
+```
+**Response**:
+```json
+{
+  "key": "myKey",
+  "success": true
+}
+```
+**Errors:**
+- **404 Not Found**: If the key does not exist or is already persistent.
+- **400 Bad Request**: If the request body is invalid.
 - **500 Internal Server Error**: For unexpected errors.
 
 ---
@@ -755,7 +833,64 @@ Each error response may include a JSON body with an `"error"` field containing a
    }
    ```
 
-4. **Working with a list**:
+4. **Incrementing by a specific value**:
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+   -d '{"key":"counter", "increment": 10}' \
+   http://localhost:8080/api/incrby
+   ```
+   **Response**:
+   ```json
+   {
+     "key": "counter",
+     "value": 10
+   }
+   ```
+
+5. **Decrementing by a specific value**:
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+   -d '{"key":"counter", "decrement": 5}' \
+   http://localhost:8080/api/decrby
+   ```
+   **Response**:
+   ```json
+   {
+     "key": "counter",
+     "value": -5
+   }
+   ```
+
+6. **Setting a TTL using Expire**:
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+   -d '{"key":"hello","ttl":60}' \
+   http://localhost:8080/api/expire
+   ```
+   **Response**:
+   ```json
+   {
+     "key": "hello",
+     "ttl": 60,
+     "success": true
+   }
+   ```
+
+7. **Removing TTL using Persist**:
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+   -d '{"key":"hello"}' \
+   http://localhost:8080/api/persist
+   ```
+   **Response**:
+   ```json
+   {
+     "key": "hello",
+     "success": true
+   }
+   ```
+
+8. **Working with a list**:
    ```bash
    # LPush
    curl -X POST -H "Content-Type: application/json" \
@@ -775,11 +910,11 @@ Each error response may include a JSON body with an `"error"` field containing a
    }
    ```
 
-5. **Working with a hash**:
+9. **Working with a hash**:
    ```bash
    # HSet
    curl -X POST -H "Content-Type: application/json" \
-   -d '{"key":"user:1","field":"name","value":"Test"}' \
+   -d '{"key":"user:1","field":"name","value":"Test","ttl":60}' \
    http://localhost:8080/api/hset
 
    # HGet
@@ -794,18 +929,41 @@ Each error response may include a JSON body with an `"error"` field containing a
    }
    ```
 
-6. **Finding keys by value**:
-   ```bash
-   curl -X POST -H "Content-Type: application/json" \
-   -d '{"value":"Test"}' \
-   http://localhost:8080/api/find
-   ```
-   **Possible Response**:
-   ```json
-   {
-     "value": "Test",
-     "keys": ["user:1", "someOtherKey"]
-   }
-   ```
+10. **Finding keys by value**:
+    ```bash
+    curl -X POST -H "Content-Type: application/json" \
+    -d '{"value":"Test"}' \
+    http://localhost:8080/api/find
+    ```
+    **Possible Response**:
+    ```json
+    {
+      "value": "Test",
+      "keys": ["user:1", "someOtherKey"]
+    }
+    ```
 
----
+11. **Deleting a key**:
+    ```bash
+    curl -X POST -H "Content-Type: application/json" \
+    -d '{"key":"myKey"}' \
+    http://localhost:8080/api/delete
+    ```
+    **Response**:
+    ```json
+    {
+      "message": "Deleted",
+      "key": "myKey"
+    }
+    ```
+
+12. **Dropping all keys**:
+    ```bash
+    curl -X POST http://localhost:8080/api/dropall
+    ```
+    **Response**:
+    ```json
+    {
+      "message": "All keys dropped"
+    }
+    ```

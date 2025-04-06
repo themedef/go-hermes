@@ -2,10 +2,10 @@ package hermes
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/themedef/go-hermes/internal/contracts"
 	"sync"
+
+	"github.com/themedef/go-hermes/internal/contracts"
 )
 
 type Transaction struct {
@@ -16,7 +16,7 @@ type Transaction struct {
 	active   bool
 }
 
-func NewTransaction(db contracts.StoreHandler) *Transaction {
+func NewTransaction(db contracts.StoreHandler) contracts.TransactionHandler {
 	tx := &Transaction{db: db}
 	_ = tx.begin()
 	return tx
@@ -89,7 +89,7 @@ func (t *Transaction) Set(ctx context.Context, key string, value interface{}, tt
 	oldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return err
@@ -123,10 +123,7 @@ func (t *Transaction) SetNX(ctx context.Context, key string, value interface{}, 
 
 	t.commands = append(t.commands, func() error {
 		_, setErr := t.db.SetNX(ctx, key, value, ttl)
-		if setErr != nil {
-			return setErr
-		}
-		return nil
+		return setErr
 	})
 	t.rollback = append(t.rollback, func() {
 		if existed {
@@ -149,7 +146,7 @@ func (t *Transaction) SetXX(ctx context.Context, key string, value interface{}, 
 	oldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return err
@@ -197,7 +194,7 @@ func (t *Transaction) SetCAS(ctx context.Context, key string, oldValue, newValue
 	dbOldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return err
@@ -229,7 +226,7 @@ func (t *Transaction) GetSet(ctx context.Context, key string, newValue interface
 	oldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return nil, err
@@ -262,7 +259,7 @@ func (t *Transaction) Incr(ctx context.Context, key string) error {
 	oldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return err
@@ -295,7 +292,7 @@ func (t *Transaction) Decr(ctx context.Context, key string) error {
 	oldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return err
@@ -317,6 +314,44 @@ func (t *Transaction) Decr(ctx context.Context, key string) error {
 	return nil
 }
 
+func (t *Transaction) IncrBy(ctx context.Context, key string, increment int64) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if !t.active {
+		return ErrTransactionNotActive
+	}
+
+	oldVal, err := t.db.Get(ctx, key)
+	existed := true
+	if err != nil {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
+			existed = false
+		} else {
+			return err
+		}
+	}
+
+	t.commands = append(t.commands, func() error {
+		_, err := t.db.IncrBy(ctx, key, increment)
+		return err
+	})
+
+	t.rollback = append(t.rollback, func() {
+		if existed {
+			_ = t.db.Set(context.Background(), key, oldVal, 0)
+		} else {
+			_ = t.db.Delete(context.Background(), key)
+		}
+	})
+
+	return nil
+}
+
+func (t *Transaction) DecrBy(ctx context.Context, key string, decrement int64) error {
+	return t.IncrBy(ctx, key, -decrement)
+}
+
 func (t *Transaction) LPush(ctx context.Context, key string, values ...interface{}) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -328,7 +363,7 @@ func (t *Transaction) LPush(ctx context.Context, key string, values ...interface
 	oldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return err
@@ -365,7 +400,7 @@ func (t *Transaction) RPush(ctx context.Context, key string, values ...interface
 	oldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return err
@@ -402,7 +437,7 @@ func (t *Transaction) LPop(ctx context.Context, key string) (interface{}, error)
 	oldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return nil, err
@@ -456,7 +491,7 @@ func (t *Transaction) RPop(ctx context.Context, key string) (interface{}, error)
 	oldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return nil, err
@@ -530,7 +565,7 @@ func (t *Transaction) HSet(ctx context.Context, key, field string, value interfa
 	oldValue, err := t.db.HGet(ctx, key, field)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) {
+		if IsKeyNotFound(err) {
 			existed = false
 		} else {
 			return err
@@ -571,7 +606,7 @@ func (t *Transaction) HDel(ctx context.Context, key, field string) error {
 	oldVal, err := t.db.HGet(ctx, key, field)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) {
+		if IsKeyNotFound(err) {
 			existed = false
 		} else {
 			return err
@@ -588,6 +623,7 @@ func (t *Transaction) HDel(ctx context.Context, key, field string) error {
 	})
 	return nil
 }
+
 func (t *Transaction) HGetAll(ctx context.Context, key string) (map[string]interface{}, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -628,7 +664,7 @@ func (t *Transaction) Exists(ctx context.Context, key string) (bool, error) {
 	return t.db.Exists(ctx, key)
 }
 
-func (t *Transaction) UpdateTTL(ctx context.Context, key string, ttl int) error {
+func (t *Transaction) Expire(ctx context.Context, key string, ttl int) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -639,7 +675,7 @@ func (t *Transaction) UpdateTTL(ctx context.Context, key string, ttl int) error 
 	oldVal, oldTtl, err := t.db.GetWithDetails(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return err
@@ -647,8 +683,16 @@ func (t *Transaction) UpdateTTL(ctx context.Context, key string, ttl int) error 
 	}
 
 	t.commands = append(t.commands, func() error {
-		return t.db.UpdateTTL(ctx, key, ttl)
+		ok, err := t.db.Expire(ctx, key, ttl)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrKeyNotFound
+		}
+		return nil
 	})
+
 	t.rollback = append(t.rollback, func() {
 		if existed {
 			_ = t.db.Set(context.Background(), key, oldVal, oldTtl)
@@ -656,6 +700,47 @@ func (t *Transaction) UpdateTTL(ctx context.Context, key string, ttl int) error 
 			_ = t.db.Delete(context.Background(), key)
 		}
 	})
+
+	return nil
+}
+
+func (t *Transaction) Persist(ctx context.Context, key string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if !t.active {
+		return ErrTransactionNotActive
+	}
+
+	oldVal, oldTtl, err := t.db.GetWithDetails(ctx, key)
+	existed := true
+	if err != nil {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
+			existed = false
+		} else {
+			return err
+		}
+	}
+
+	t.commands = append(t.commands, func() error {
+		ok, err := t.db.Persist(ctx, key)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrKeyNotFound
+		}
+		return nil
+	})
+
+	t.rollback = append(t.rollback, func() {
+		if existed {
+			_ = t.db.Set(context.Background(), key, oldVal, oldTtl)
+		} else {
+			_ = t.db.Delete(context.Background(), key)
+		}
+	})
+
 	return nil
 }
 
@@ -742,7 +827,7 @@ func (t *Transaction) Delete(ctx context.Context, key string) error {
 	oldVal, err := t.db.Get(ctx, key)
 	existed := true
 	if err != nil {
-		if errors.Is(err, ErrKeyNotFound) || errors.Is(err, ErrKeyExpired) {
+		if IsKeyNotFound(err) || IsKeyExpired(err) {
 			existed = false
 		} else {
 			return err

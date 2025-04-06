@@ -6,39 +6,42 @@
 
 1. [Initialization](#initialization)
 2. [Core Methods](#core-methods)
-   - [Key-Value Operations](#key-value-operations)
-      - [Set](#set)
-      - [Get](#get)
-      - [SetNX](#setnx)
-      - [SetXX](#setxx)
-      - [SetCAS](#setcas)
-      - [GetSet](#getset)
-   - [Atomic Counters](#atomic-counters)
-      - [Incr](#increment)
-      - [Decr](#decrement)
-   - [List Operations](#list-operations)
-      - [LPush](#lpush)
-      - [RPush](#rpush)
-      - [LPop](#lpop)
-      - [RPop](#rpop)
-      - [LRange](#lrange)
-      - [LLen](#llen)
-   - [Hash Operations](#hash-operations)
-      - [HSet](#hset)
-      - [HGet](#hget)
-      - [HDel](#hdel)
-      - [HGetAll](#hgetall)
-      - [HExists](#hexists)
-      - [HLen](#hlen)
-   - [Utility Methods](#utility-methods)
-      - [Exists](#exists)
-      - [UpdateTTL](#updatettl)
-      - [Type](#type)
-      - [GetWithDetails](#getwithdetails)
-      - [Rename](#rename)
-      - [FindByValue](#findbyvalue)
-      - [Delete](#delete)
-      - [DropAll](#dropall)
+    - [Key-Value Operations](#key-value-operations)
+        - [Set](#set)
+        - [Get](#get)
+        - [SetNX](#setnx)
+        - [SetXX](#setxx)
+        - [SetCAS](#setcas)
+        - [GetSet](#getset)
+    - [Atomic Counters](#atomic-counters)
+        - [Incr](#increment)
+        - [Decr](#decrement)
+        - [IncrBy](#incrby)
+        - [DecrBy](#decrby)
+    - [List Operations](#list-operations)
+        - [LPush](#lpush)
+        - [RPush](#rpush)
+        - [LPop](#lpop)
+        - [RPop](#rpop)
+        - [LRange](#lrange)
+        - [LLen](#llen)
+    - [Hash Operations](#hash-operations)
+        - [HSet](#hset)
+        - [HGet](#hget)
+        - [HDel](#hdel)
+        - [HGetAll](#hgetall)
+        - [HExists](#hexists)
+        - [HLen](#hlen)
+    - [Utility Methods](#utility-methods)
+        - [Exists](#exists)
+        - [Expire](#expire)
+        - [Persist](#persist)
+        - [Type](#type)
+        - [GetWithDetails](#getwithdetails)
+        - [Rename](#rename)
+        - [FindByValue](#findbyvalue)
+        - [Delete](#delete)
+        - [DropAll](#dropall)
 3. [Error Reference](#error-reference)
 4. [Best Practices](#best-practices)
 
@@ -81,8 +84,6 @@ func main() {
 }
 ```
 
----
-
 ### Configuration Options
 
 | Parameter           | Type             | Default | Description                                                                                         |
@@ -108,9 +109,8 @@ err := db.Set(context.Background(), "user", "Test", 60) // TTL = 60 seconds
 **Description**:  
 Sets a key to the given value with an optional TTL.
 
-  **Errors**:
+**Errors**:
 - `ErrContextCanceled`, `ErrInvalidKey`, `ErrInvalidTTL`.
-
 
 ---
 
@@ -121,8 +121,9 @@ value, err := db.Get(context.Background(), "user")
 **Description**:  
 Retrieves the value of the specified key.
 
-  **Errors**:
+**Errors**:
 - `ErrContextCanceled`, `ErrKeyNotFound`, `ErrKeyExpired`.
+
 ---
 
 #### **SetNX** <a id="setnx"></a>
@@ -200,17 +201,41 @@ Decrements the integer value by 1. Initializes key to `-1` if missing.
 
 ---
 
+#### **IncrBy** <a id="incrby"></a>
+```go
+newValue, err := db.IncrBy(context.Background(), "counter", 10)
+```
+**Description**:  
+Increments the integer value by a specified amount.  
+If the key does not exist, it is created with the increment value.
+
+**Errors**:
+- `ErrContextCanceled`, `ErrInvalidValueType`.
+
+---
+
+#### **DecrBy** <a id="decrby"></a>
+```go
+newValue, err := db.DecrBy(context.Background(), "counter", 5)
+```
+**Description**:  
+Decrements the integer value by a specified amount.  
+If the key does not exist, it is created with the negative of the decrement value.
+
+**Errors**:
+- `ErrContextCanceled`, `ErrInvalidValueType`.
+
+---
+
 ### **List Operations** <a id="list-operations"></a>
 
 #### **LPush** <a id="lpush"></a>
 ```go
-// Now accepts one or more values:
 err := db.LPush(context.Background(), "tasks", "task1", "task2")
 ```
 **Description**:  
 Inserts one or more elements at the beginning (left) of the list.  
-Creates the list if it does not exist.  
-**Note:** The updated signature accepts variadic values instead of a single value.
+Creates the list if it does not exist.
 
 **Errors**:
 - `ErrContextCanceled`, `ErrInvalidKey`, `ErrInvalidType`.
@@ -219,13 +244,11 @@ Creates the list if it does not exist.
 
 #### **RPush** <a id="rpush"></a>
 ```go
-// Now accepts one or more values:
 err := db.RPush(context.Background(), "tasks", "task3", "task4")
 ```
 **Description**:  
 Inserts one or more elements at the end (right) of the list.  
-Creates the list if it does not exist.  
-**Note:** The updated signature accepts variadic values instead of a single value.
+Creates the list if it does not exist.
 
 **Errors**:
 - `ErrContextCanceled`, `ErrInvalidType`.
@@ -287,7 +310,8 @@ Returns the length of the list.
 err := db.HSet(context.Background(), "user", "name", "Test", 0)
 ```
 **Description**:  
-Sets a hash field. Creates the hash if needed. TTL remains unchanged if set to `0`.
+Sets a hash field. Creates the hash if needed.  
+TTL remains unchanged if set to `0`.
 
 **Errors**:
 - `ErrContextCanceled`, `ErrInvalidType`, `ErrInvalidTTL`.
@@ -368,15 +392,33 @@ Checks whether the key exists and is not expired.
 
 ---
 
-#### **UpdateTTL** <a id="updatettl"></a>
+#### **Expire** <a id="expire"></a>
 ```go
-err := db.UpdateTTL(context.Background(), "user", 120)
+success, err := db.Expire(context.Background(), "user", 60)
 ```
 **Description**:  
-Updates the TTL (expiration) of a key.
+Sets a new TTL for an existing key.
+
+**Response**:  
+Returns a boolean indicating success.
 
 **Errors**:
 - `ErrContextCanceled`, `ErrInvalidTTL`, `ErrKeyNotFound`.
+
+---
+
+#### **Persist** <a id="persist"></a>
+```go
+success, err := db.Persist(context.Background(), "user")
+```
+**Description**:  
+Removes the TTL from a key, making it persistent.
+
+**Response**:  
+Returns a boolean indicating success.
+
+**Errors**:
+- `ErrContextCanceled`, `ErrKeyNotFound`.
 
 ---
 
@@ -385,7 +427,7 @@ Updates the TTL (expiration) of a key.
 dataType, err := db.Type(context.Background(), "user")
 ```
 **Description**:  
-Returns the data type of the key (e.g. `String`, `List`, or `Hash`).
+Returns the data type of the key (e.g., `String`, `List`, or `Hash`).
 
 **Errors**:
 - `ErrContextCanceled`, `ErrKeyNotFound`.
@@ -454,16 +496,16 @@ Deletes all keys from the store.
 
 ## 3. Error Reference <a id="error-reference"></a>
 
-| Error                | Description                                     | Example Scenario                                  |
-|----------------------|-------------------------------------------------|---------------------------------------------------|
-| `ErrKeyNotFound`     | Key does not exist or has expired               | Calling `Get` on a deleted or expired key         |
-| `ErrInvalidKey`      | Key is empty or improperly formatted            | Calling `Set("", "value", 0)`                     |
-| `ErrInvalidType`     | Operation on a key with an unexpected data type   | Using `LPush` on a key that is not a list          |
-| `ErrEmptyList`       | List is empty during a pop operation             | Calling `LPop` on an empty list                    |
-| `ErrInvalidTTL`      | TTL value is negative                            | Calling `Set("key", "value", -10)`                 |
-| `ErrValueMismatch`   | CAS operation failed: current value ≠ old value  | `SetCAS` with an incorrect `old_value`             |
-| `ErrKeyExists`       | Key already exists when using SETNX              | Calling `SetNX` on an existing key                 |
-| `ErrContextCanceled` | Operation canceled via context                   | Request timeout or manual cancellation             |
+| Error                | Description                                      | Example Scenario                                  |
+|----------------------|--------------------------------------------------|---------------------------------------------------|
+| `ErrKeyNotFound`     | Key does not exist or has expired                | Calling `Get` on a deleted or expired key         |
+| `ErrInvalidKey`      | Key is empty or improperly formatted             | Calling `Set("", "value", 0)`                     |
+| `ErrInvalidType`     | Operation on a key with an unexpected data type    | Using `LPush` on a key that is not a list          |
+| `ErrEmptyList`       | List is empty during a pop operation              | Calling `LPop` on an empty list                    |
+| `ErrInvalidTTL`      | TTL value is negative                             | Calling `Set("key", "value", -10)`                 |
+| `ErrValueMismatch`   | CAS operation failed: current value ≠ old value   | `SetCAS` with an incorrect `old_value`             |
+| `ErrKeyExists`       | Key already exists when using SETNX               | Calling `SetNX` on an existing key                 |
+| `ErrContextCanceled` | Operation canceled via context                    | Request timeout or manual cancellation             |
 
 ---
 
@@ -478,7 +520,6 @@ Deletes all keys from the store.
 
    value, err := db.Get(ctx, "user:123")
    if err != nil {
-       // Handle error (e.g., log or retry)
        log.Printf("Error fetching key: %v", err)
    } else {
        fmt.Println("Value:", value)
@@ -490,7 +531,6 @@ Deletes all keys from the store.
    Always verify error returns and validate result values. This is especially important for operations that might fail silently or return nil values.  
    **Example:**
    ```go
-   // When performing a CAS operation
    err := db.SetCAS(context.Background(), "account:balance", "100", "150", 300)
    if err != nil {
        if errors.Is(err, hermes.ErrValueMismatch) {
@@ -508,18 +548,16 @@ Deletes all keys from the store.
    Use TTL values where appropriate and implement periodic checks if your application relies on long-lived keys.  
    **Example:**
    ```go
-   // Set a temporary key with a TTL
    err := db.Set(context.Background(), "session:abc", "data", 60)
    if err != nil {
        log.Printf("Error setting key: %v", err)
    }
    
-   // Later, check key existence
    exists, err := db.Exists(context.Background(), "session:abc")
    if err != nil {
        log.Printf("Error checking key: %v", err)
    } else if !exists {
-       log.Println("Session expired or does not exist, refresh or reinitialize session")
+       log.Println("Session expired or does not exist; refresh or reinitialize session")
    }
    ```
    **Tip:** Consider client-side caching or periodic refresh logic if key expiration is critical.
@@ -529,12 +567,11 @@ Deletes all keys from the store.
    **Example:**
    ```go
    db := hermes.NewStore(hermes.Config{
-       ShardCount:      8,                // Increase shards to 8 for better parallelism
+       ShardCount:      8,
        CleanupInterval: 5 * time.Second,
        EnableLogging:   true,
    })
 
-   // In a concurrent scenario, many goroutines can operate on different shards simultaneously.
    go func() {
        err := db.Set(context.Background(), "user:1", "Test", 60)
        if err != nil {
@@ -557,67 +594,35 @@ Deletes all keys from the store.
    db := hermes.NewStore(hermes.Config{
        EnableLogging:   true,
        LogFile:         "/var/log/hermes.log",
-       LogBufferSize:   5000,       // Increased buffer size for bursts
-       MinLevel:        hermes.WARN, // Only log warnings and errors
+       LogBufferSize:   5000,
+       MinLevel:        hermes.WARN,
    })
    ```
    **Tip:** Monitor log metrics; if you notice frequent drops, increase the buffer or adjust the log level.
 
 6. **Working with Structured Data**  
    When dealing with complex data structures, consider the following approaches:
-   - **Using Hashes:**  
-     Use the hash operations (`HSet`, `HGet`, `HGetAll`) to store structured data such as user profiles. Each field in the hash represents a property of the structure.
-     **Example:**
-     ```go
-     // Storing a user structure using a hash:
-     err := db.HSet(context.Background(), "user", "name", "Test", 0)
-     if err != nil {
-         log.Println("Error setting hash field:", err)
-     }
-     err = db.HSet(context.Background(), "user", "email", "test@example.com", 0)
-     if err != nil {
-         log.Println("Error setting hash field:", err)
-     }
-     
-     // Retrieving the entire user structure:
-     fields, err := db.HGetAll(context.Background(), "user")
-     if err != nil {
-         log.Println("Error retrieving user structure:", err)
-     } else {
-         fmt.Printf("User data: %+v\n", fields)
-     }
-     ```
-   - **Using JSON or Custom Encoding:**  
-     Alternatively, you can marshal complex structures to JSON and store them as strings using `Set` and retrieve them using `Get`.  
-     **Example:**
-     ```go
-     type User struct {
-         Name  string `json:"name"`
-         Email string `json:"email"`
-     }
-
-     user := User{Name: "Test", Email: "test@example.com"}
-     jsonData, err := json.Marshal(user)
-     if err != nil {
-         log.Fatalf("JSON marshal error: %v", err)
-     }
-     err = db.Set(context.Background(), "user:101", string(jsonData), 0)
-     if err != nil {
-         log.Fatalf("Error setting user data: %v", err)
-     }
-     
-     // Retrieve and unmarshal the JSON data:
-     data, err := db.Get(context.Background(), "user:101")
-     if err != nil {
-         log.Fatalf("Error getting user data: %v", err)
-     }
-     var retrievedUser User
-     err = json.Unmarshal([]byte(data.(string)), &retrievedUser)
-     if err != nil {
-         log.Fatalf("JSON unmarshal error: %v", err)
-     }
-     fmt.Printf("Retrieved User: %+v\n", retrievedUser)
-     ```
+    - **Using Hashes:**  
+      Use hash operations (`HSet`, `HGet`, `HGetAll`) to store structured data such as user profiles.
+      ```go
+      err := db.HSet(context.Background(), "user", "name", "Test", 0)
+      err = db.HSet(context.Background(), "user", "email", "test@example.com", 0)
+      fields, err := db.HGetAll(context.Background(), "user")
+      ```
+    - **Using JSON Encoding:**  
+      Marshal complex structures to JSON and store them as strings using `Set` and retrieve using `Get`.
+      ```go
+      type User struct {
+          Name  string `json:"name"`
+          Email string `json:"email"`
+      }
+      user := User{Name: "Test", Email: "test@example.com"}
+      jsonData, err := json.Marshal(user)
+      err = db.Set(context.Background(), "user:101", string(jsonData), 0)
+      data, err := db.Get(context.Background(), "user:101")
+      var retrievedUser User
+      err = json.Unmarshal([]byte(data.(string)), &retrievedUser)
+      ```
    **Tip:** Choose the method that best fits your application's complexity and performance needs.
 
 ---

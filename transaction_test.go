@@ -274,15 +274,15 @@ func TestTransactionSetCASWrongOld(t *testing.T) {
 	}
 }
 
-func TestTransactionUpdateTTLCommit(t *testing.T) {
+func TestTransactionExpireCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 	_ = db.Set(ctx, "ttlKey", "hasTTL", 1)
 
 	tx := db.Transaction()
 
-	if err := tx.UpdateTTL(ctx, "ttlKey", 3); err != nil {
-		t.Fatalf("UpdateTTL in transaction failed: %v", err)
+	if err := tx.Expire(ctx, "ttlKey", 3); err != nil {
+		t.Fatalf("Expire in transaction failed: %v", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -301,14 +301,14 @@ func TestTransactionUpdateTTLCommit(t *testing.T) {
 	}
 }
 
-func TestTransactionUpdateTTLRollback(t *testing.T) {
+func TestTransactionExpireRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 	_ = db.Set(ctx, "ttlKey", "hello", 1)
 
 	tx := db.Transaction()
-	if err := tx.UpdateTTL(ctx, "ttlKey", 5); err != nil {
-		t.Fatalf("UpdateTTL in transaction failed: %v", err)
+	if err := tx.Expire(ctx, "ttlKey", 5); err != nil {
+		t.Fatalf("Expire in transaction failed: %v", err)
 	}
 
 	if err := tx.Rollback(); err != nil {

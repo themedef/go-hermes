@@ -3,6 +3,7 @@ package logger
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/themedef/go-hermes/internal/contracts"
 	"log"
 	"os"
 	"strings"
@@ -48,7 +49,7 @@ type LogMessage struct {
 	Message   string   `json:"message"`
 }
 
-func NewLogger(config Config) (*Logger, error) {
+func NewLogger(config Config) (contracts.LoggerHandler, error) {
 	if !config.Enabled {
 		return &Logger{config: config}, nil
 	}

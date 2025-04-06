@@ -1,6 +1,7 @@
 package pubsub
 
 import (
+	"github.com/themedef/go-hermes/internal/contracts"
 	"sync"
 )
 
@@ -14,7 +15,7 @@ type PubSub struct {
 	bufferSize  int
 }
 
-func NewPubSub(config Config) *PubSub {
+func NewPubSub(config Config) contracts.PubSubHandler {
 	bs := 10000
 	if config.BufferSize > 0 {
 		bs = config.BufferSize

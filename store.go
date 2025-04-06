@@ -44,7 +44,7 @@ type shard struct {
 
 type DB struct {
 	shards        []*shard
-	logger        *logger.Logger
+	logger        contracts.LoggerHandler
 	pubsub        contracts.PubSubHandler
 	config        Config
 	transaction   *Transaction
@@ -53,7 +53,7 @@ type DB struct {
 	cleanupCancel context.CancelFunc
 }
 
-func NewStore(config Config) *DB {
+func NewStore(config Config) contracts.StoreHandler {
 	if config.CleanupInterval == 0 {
 		config.CleanupInterval = time.Second
 	}
@@ -390,6 +390,48 @@ func (db *DB) Decr(ctx context.Context, key string) (int64, error) {
 
 	db.logger.Info("Decr operation successful", "key", key, "newVal", val)
 	return val, nil
+}
+
+func (db *DB) IncrBy(ctx context.Context, key string, increment int64) (int64, error) {
+	select {
+	case <-ctx.Done():
+		db.logger.Warn("IncrBy operation canceled", "key", key)
+		return 0, ErrContextCanceled
+	default:
+	}
+
+	sh := db.shards[db.getShardIndex(key)]
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	entry, exists := sh.data[key]
+	if !exists || isExpired(entry) {
+		newVal := increment
+		sh.data[key] = Entry{Value: newVal, Type: String}
+		db.logger.Info("IncrBy created key", "key", key, "value", newVal)
+		return newVal, nil
+	}
+
+	if entry.Type != String {
+		db.logger.Error("IncrBy type mismatch", "key", key, "type", entry.Type)
+		return 0, ErrInvalidType
+	}
+
+	current, ok := entry.Value.(int64)
+	if !ok {
+		db.logger.Error("IncrBy value not int64", "key", key)
+		return 0, ErrInvalidValueType
+	}
+
+	current += increment
+	entry.Value = current
+	sh.data[key] = entry
+	db.logger.Info("IncrBy success", "key", key, "newValue", current)
+	return current, nil
+}
+
+func (db *DB) DecrBy(ctx context.Context, key string, decrement int64) (int64, error) {
+	return db.IncrBy(ctx, key, -decrement)
 }
 
 func (db *DB) LPush(ctx context.Context, key string, values ...interface{}) error {
@@ -940,21 +982,18 @@ func (db *DB) Exists(ctx context.Context, key string) (bool, error) {
 	return true, nil
 }
 
-func (db *DB) UpdateTTL(ctx context.Context, key string, ttl int) error {
+func (db *DB) Expire(ctx context.Context, key string, ttl int) (bool, error) {
 	select {
 	case <-ctx.Done():
-		db.logger.Warn("UpdateTTL operation canceled", "key", key)
-		return ErrContextCanceled
+		db.logger.Warn("Expire operation canceled", "key", key)
+		return false, ErrContextCanceled
 	default:
 	}
 
 	expiration, err := ttlSecondsToTime(ttl)
 	if err != nil {
-		db.logger.Error("invalid TTL value in UpdateTTL",
-			"key", key,
-			"ttl", ttl,
-			"error", err)
-		return err
+		db.logger.Error("invalid TTL in Expire", "key", key, "ttl", ttl, "error", err)
+		return false, err
 	}
 
 	sh := db.shards[db.getShardIndex(key)]
@@ -962,22 +1001,41 @@ func (db *DB) UpdateTTL(ctx context.Context, key string, ttl int) error {
 	defer sh.mu.Unlock()
 
 	entry, exists := sh.data[key]
-	if exists && isExpired(entry) {
-		delete(sh.data, key)
-		exists = false
-		db.logger.Info("auto-removed expired key in UpdateTTL", "key", key)
-	}
-
-	if !exists {
-		db.logger.Warn("UpdateTTL failed: key not found", "key", key)
-		return ErrKeyNotFound
+	if !exists || isExpired(entry) {
+		return false, nil
 	}
 
 	entry.Expiration = expiration
 	sh.data[key] = entry
+	db.logger.Info("Expire set", "key", key, "ttl", ttl)
+	return true, nil
+}
 
-	db.logger.Info("TTL updated successfully", "key", key, "new_ttl", ttl)
-	return nil
+func (db *DB) Persist(ctx context.Context, key string) (bool, error) {
+	select {
+	case <-ctx.Done():
+		db.logger.Warn("Persist operation canceled", "key", key)
+		return false, ErrContextCanceled
+	default:
+	}
+
+	sh := db.shards[db.getShardIndex(key)]
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	entry, exists := sh.data[key]
+	if !exists || isExpired(entry) {
+		return false, nil
+	}
+
+	if entry.Expiration.IsZero() {
+		return false, nil
+	}
+
+	entry.Expiration = time.Time{}
+	sh.data[key] = entry
+	db.logger.Info("Persist successful", "key", key)
+	return true, nil
 }
 
 func (db *DB) Type(ctx context.Context, key string) (interface{}, error) {
@@ -1169,52 +1227,107 @@ func (db *DB) cleanupExpiredKeys(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	const batchSize = 10000
+	const (
+		basePercentage    = 0.25
+		aggressionFactor  = 1.2
+		cooldownThreshold = 0.1
+	)
 
 	for {
 		select {
 		case <-ticker.C:
-			var wg sync.WaitGroup
+			var totalProcessed int
+			var totalExpired int
+
 			for _, sh := range db.shards {
-				wg.Add(1)
-				go func(sh *shard) {
-					defer wg.Done()
-
-					expiredKeys := make([]string, 0, batchSize)
-					count := 0
-
-					sh.mu.Lock()
-					for key, entry := range sh.data {
-						if isExpired(entry) {
-							delete(sh.data, key)
-							expiredKeys = append(expiredKeys, key)
-							count++
-							if count >= batchSize {
-								break
-							}
-						}
-					}
-					sh.mu.Unlock()
-
-					for _, key := range expiredKeys {
-						db.pubsub.Publish(key, "EXPIRED")
-					}
-
-					if len(expiredKeys) > 0 {
-						db.logger.Info("cleanupExpiredKeys removed expired keys",
-							"count", len(expiredKeys),
-							"batch_size", batchSize,
-						)
-					}
-				}(sh)
+				processed, expired := db.processShard(sh, basePercentage, aggressionFactor, cooldownThreshold)
+				totalProcessed += processed
+				totalExpired += expired
 			}
-			wg.Wait()
+
+			db.logger.Info("Global cleanup stats",
+				"total_processed", totalProcessed,
+				"total_expired", totalExpired,
+				"efficiency", safeDivide(totalExpired, totalProcessed),
+			)
 
 		case <-db.cleanupCtx.Done():
 			db.logger.Info("cleanupExpiredKeys: shutting down")
 			return
 		}
 	}
+}
+
+func (db *DB) processShard(sh *shard, basePct, aggression float64, cooldownThr float64) (int, int) {
+	sh.mu.RLock()
+	totalKeys := len(sh.data)
+	checkLimit := int(float64(totalKeys) * basePct)
+	sh.mu.RUnlock()
+
+	if checkLimit < 1 {
+		return 0, 0
+	}
+
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	var expiredKeys []string
+	checked := 0
+	aggressiveMode := false
+
+	for key, entry := range sh.data {
+		if checked >= checkLimit {
+			break
+		}
+
+		checked++
+		if isExpired(entry) {
+			expiredKeys = append(expiredKeys, key)
+
+			if len(expiredKeys) > int(float64(checked)*cooldownThr) {
+				checkLimit = int(float64(checkLimit) * aggression)
+				aggressiveMode = true
+			}
+		}
+	}
+
+	deleted := 0
+	for _, key := range expiredKeys {
+		if entry, exists := sh.data[key]; exists && isExpired(entry) {
+			delete(sh.data, key)
+			db.pubsub.Publish(key, "EXPIRED")
+			deleted++
+		}
+	}
+
+	if deleted > 0 {
+		efficiency := safeDivide(deleted, checked)
+
+		if aggressiveMode {
+			db.logger.Warn("Aggressive cleanup activated",
+				"checked", checked,
+				"deleted", deleted,
+				"efficiency", efficiency,
+				"aggressive", aggressiveMode,
+			)
+		} else {
+			db.logger.Debug("Shard cleanup stats",
+				"checked", checked,
+				"deleted", deleted,
+				"efficiency", efficiency,
+				"aggressive", aggressiveMode,
+			)
+		}
+	}
+
+	return checked, deleted
+}
+
+func safeDivide(a, b int) float64 {
+	if b == 0 {
+		return 0.0
+	}
+	return float64(a) / float64(b)
 }
 
 func (db *DB) Subscribe(key string) chan string {
