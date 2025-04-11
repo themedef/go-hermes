@@ -99,8 +99,8 @@ Performance tested on a single-core execution using Go's `testing` and `runtime`
 
 | Operation | Ops Count | Time (sec) | RPS (req/sec) |
 |-----------|-----------|------------|---------------|
-| `Get`     | 100,000   | 0.15       | **3,991,454** |
-| `Set`     | 100,000   | 0.24       | **1,241,792** |
+| `Get`     | 1.000.000 | 0.25       | **4,010,652** |
+| `Set`     | 1,000,000 | 0.79       | **1,241,792** |
 
 > ️ Test environment: **1 CPU core**, TTL disabled, logging disabled.
 ## Performance Characteristics

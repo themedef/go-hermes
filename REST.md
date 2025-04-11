@@ -1204,7 +1204,3 @@ Error responses include a JSON body with an `"error"` field (e.g., `{ "error": "
       "key": "myKey"
     }
     ```
-
----
-
-This documentation now includes all the endpoints offered by the API, covering key-value, counters, lists, hashes, sets, utility methods, and the subscription functionality. If you need any further modifications or clarifications, please let me know!

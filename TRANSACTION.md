@@ -545,7 +545,3 @@ Deletes the specified key permanently.
 
 6. **Monitor Transaction Performance**
     - Track commit/rollback latency and failure rates to fine-tune TTL settings, shard counts, and overall system performance.
-
----
-
-This documentation provides a comprehensive guide to using transactions in the Hermes store, including all methods (key-value, atomic counters, lists, hashes, sets, and utility functions) with full descriptions, rollback behavior, error details, and recommended practices. If you have any questions or need further clarification, please feel free to ask!

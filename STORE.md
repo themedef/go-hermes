@@ -844,7 +844,3 @@ The current implementation uses the following error types:
 
 7. **Configure Logging Appropriately**  
    Adjust `LogBufferSize` and log levels according to your application's performance and visibility requirements. Monitor log throughput and adjust if necessary.
-
----
-
-This updated English documentation now includes all the new methods and provides an updated error reference, while preserving the original content. If you have further questions or need clarifications on any of the sections, please let me know!

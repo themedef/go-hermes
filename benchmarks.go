@@ -10,7 +10,7 @@ import (
 
 func BenchmarkParallelGet() {
 	debug.SetGCPercent(20)
-	const total = 10000000
+	const total = 1000000
 	maxConcurrent := 1
 
 	db := NewStore(Config{ShardCount: maxConcurrent})
