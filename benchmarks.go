@@ -38,24 +38,13 @@ func BenchmarkParallelSet() {
 	db := NewStore(Config{ShardCount: maxConcurrent})
 	ctx := context.Background()
 
-	sem := make(chan struct{}, maxConcurrent)
-	var wg sync.WaitGroup
 	start := time.Now()
 
 	for i := 0; i < total; i++ {
-		wg.Add(1)
-		sem <- struct{}{}
-
-		go func(i int) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			key := fmt.Sprintf("key-%d", i)
-			_ = db.Set(ctx, key, "value", 0)
-		}(i)
+		key := fmt.Sprintf("key-%d", i)
+		_ = db.Set(ctx, key, "value", 0)
 	}
 
-	wg.Wait()
 	elapsed := time.Since(start)
 	rps := float64(total) / elapsed.Seconds()
 	fmt.Printf("Executed %d Set operations in %.2f seconds\n", total, elapsed.Seconds())

@@ -24,6 +24,7 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 	cmd := strings.ToUpper(parts[0])
 
 	switch cmd {
+
 	case "SET":
 		if len(parts) < 3 {
 			return "", fmt.Errorf("Usage: SET key value [ttlSeconds]")
@@ -391,6 +392,94 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 		}
 		return strconv.Itoa(length), nil
 
+	case "SADD":
+
+		if len(parts) < 3 {
+			return "", fmt.Errorf("Usage: SADD key member1 [member2 ...]")
+		}
+		key := parts[1]
+		members := parts[2:]
+		var memInterfaces []interface{}
+		for _, m := range members {
+			memInterfaces = append(memInterfaces, m)
+		}
+		if err := c.db.SAdd(ctx, key, memInterfaces...); err != nil {
+			return "", err
+		}
+
+		return fmt.Sprintf("%d", len(members)), nil
+
+	case "SREM":
+		if len(parts) < 3 {
+			return "", fmt.Errorf("Usage: SREM key member1 [member2 ...]")
+		}
+		key := parts[1]
+		members := parts[2:]
+		var memInterfaces []interface{}
+		for _, m := range members {
+			memInterfaces = append(memInterfaces, m)
+		}
+		if err := c.db.SRem(ctx, key, memInterfaces...); err != nil {
+			if IsKeyNotFound(err) {
+				return "0", nil
+			}
+			return "", err
+		}
+		return fmt.Sprintf("%d", len(members)), nil
+
+	case "SISMEMBER":
+		if len(parts) < 3 {
+			return "", fmt.Errorf("Usage: SISMEMBER key member")
+		}
+		key := parts[1]
+		member := parts[2]
+		found, err := c.db.SIsMember(ctx, key, member)
+		if err != nil {
+			if IsKeyNotFound(err) {
+				return "0", nil
+			}
+			return "", err
+		}
+		if found {
+			return "1", nil
+		}
+		return "0", nil
+
+	case "SCARD":
+		if len(parts) < 2 {
+			return "", fmt.Errorf("Usage: SCARD key")
+		}
+		key := parts[1]
+		count, err := c.db.SCard(ctx, key)
+		if err != nil {
+			if IsKeyNotFound(err) {
+				return "0", nil
+			}
+			return "", err
+		}
+		return strconv.Itoa(count), nil
+
+	case "SMEMBERS":
+		if len(parts) < 2 {
+			return "", fmt.Errorf("Usage: SMEMBERS key")
+		}
+		key := parts[1]
+		members, err := c.db.SMembers(ctx, key)
+		if err != nil {
+			if IsKeyNotFound(err) {
+				return "(empty set)", nil
+			}
+			return "", err
+		}
+		if len(members) == 0 {
+			return "(empty set)", nil
+		}
+		var out []string
+		for _, m := range members {
+			out = append(out, fmt.Sprintf("%v", m))
+		}
+		return fmt.Sprintf("[%s]", strings.Join(out, " ")), nil
+
 	case "EXPIRE":
 		if len(parts) < 3 {
 			return "", fmt.Errorf("Usage: EXPIRE key seconds")
@@ -464,6 +553,8 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 			typeStr = "list"
 		case types.Hash:
 			typeStr = "hash"
+		case types.Set:
+			typeStr = "set"
 		default:
 			typeStr = "unknown"
 		}
@@ -552,10 +643,8 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 
 	case "EXEC":
 		return "EXEC not implemented", nil
-
 	case "DISCARD":
 		return "DISCARD executed", nil
-
 	case "HELP":
 		return `
 Available Commands:
@@ -581,6 +670,11 @@ Available Commands:
   HGETALL key
   HEXISTS key field
   HLEN key
+  SADD key member [member2 ...]
+  SREM key member [member2 ...]
+  SISMEMBER key member
+  SCARD key
+  SMEMBERS key
   EXISTS key
   EXPIRE key seconds
   PERSIST key

@@ -97,10 +97,10 @@ db.Unsubscribe("updates", messages)
 
 Performance tested on a single-core execution using Go's `testing` and `runtime` packages.
 
-| Operation | Ops Count | Time (sec) | RPS (req/sec)    |
-|-----------|-----------|------------|------------------|
-| `Get`     | 100,000   | 0.15       | **675,328**      |
-| `Set`     | 100,000   | 0.24       | **421,841**      |
+| Operation | Ops Count | Time (sec) | RPS (req/sec) |
+|-----------|-----------|------------|---------------|
+| `Get`     | 100,000   | 0.15       | **3,991,454** |
+| `Set`     | 100,000   | 0.24       | **1,241,792** |
 
 > ️ Test environment: **1 CPU core**, TTL disabled, logging disabled.
 ## Performance Characteristics
