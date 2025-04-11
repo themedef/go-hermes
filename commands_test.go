@@ -2,10 +2,11 @@ package hermes
 
 import (
 	"context"
+	"github.com/themedef/go-hermes/internal/contracts"
 	"testing"
 )
 
-func helperCreateAPI() (*CommandAPI, context.Context) {
+func helperCreateAPI() (contracts.CommandsHandler, context.Context) {
 	db := NewStore(Config{})
 	ctx := context.Background()
 	return NewCommandAPI(db), ctx

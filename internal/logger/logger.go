@@ -3,6 +3,7 @@ package logger
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/themedef/go-hermes/internal/contracts"
 	"log"
 	"os"
 	"strings"
@@ -48,7 +49,7 @@ type LogMessage struct {
 	Message   string   `json:"message"`
 }
 
-func NewLogger(config Config) (*Logger, error) {
+func NewLogger(config Config) (contracts.LoggerHandler, error) {
 	if !config.Enabled {
 		return &Logger{config: config}, nil
 	}
@@ -110,18 +111,30 @@ func (l *Logger) log(level LogLevel, msg string) {
 }
 
 func (l *Logger) Debug(args ...interface{}) {
+	if !l.config.Enabled {
+		return
+	}
 	l.log(DEBUG, strings.TrimSpace(fmt.Sprintln(args...)))
 }
 
 func (l *Logger) Info(args ...interface{}) {
+	if !l.config.Enabled {
+		return
+	}
 	l.log(INFO, strings.TrimSpace(fmt.Sprintln(args...)))
 }
 
 func (l *Logger) Warn(args ...interface{}) {
+	if !l.config.Enabled {
+		return
+	}
 	l.log(WARN, strings.TrimSpace(fmt.Sprintln(args...)))
 }
 
 func (l *Logger) Error(args ...interface{}) {
+	if !l.config.Enabled {
+		return
+	}
 	l.log(ERROR, strings.TrimSpace(fmt.Sprintln(args...)))
 }
 

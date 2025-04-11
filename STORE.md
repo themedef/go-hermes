@@ -16,6 +16,8 @@
    - [Atomic Counters](#atomic-counters)
       - [Incr](#increment)
       - [Decr](#decrement)
+      - [IncrBy](#incrby)
+      - [DecrBy](#decrby)
    - [List Operations](#list-operations)
       - [LPush](#lpush)
       - [RPush](#rpush)
@@ -23,6 +25,7 @@
       - [RPop](#rpop)
       - [LRange](#lrange)
       - [LLen](#llen)
+      - [LTrim](#ltrim)
    - [Hash Operations](#hash-operations)
       - [HSet](#hset)
       - [HGet](#hget)
@@ -30,15 +33,34 @@
       - [HGetAll](#hgetall)
       - [HExists](#hexists)
       - [HLen](#hlen)
+   - [Set Operations](#set-operations)
+      - [SAdd](#sadd)
+      - [SRem](#srem)
+      - [SMembers](#smembers)
+      - [SIsMember](#sismember)
+      - [SCard](#scard)
    - [Utility Methods](#utility-methods)
       - [Exists](#exists)
-      - [UpdateTTL](#updatettl)
+      - [Expire](#expire)
+      - [Persist](#persist)
       - [Type](#type)
       - [GetWithDetails](#getwithdetails)
       - [Rename](#rename)
       - [FindByValue](#findbyvalue)
       - [Delete](#delete)
       - [DropAll](#dropall)
+      - [GetRawEntry](#getrawentry)
+      - [RestoreRawEntry](#restorerawentry)
+   - [PubSub / Subscription Methods](#pubsub-methods)
+      - [Subscribe](#subscribe)
+      - [Unsubscribe](#unsubscribe)
+      - [ListSubscriptions](#listsubscriptions)
+      - [CloseAllSubscriptionsForKey](#closeallsubscriptionsforkey)
+   - [Accessor Methods](#accessor-methods)
+      - [Logger](#logger)
+      - [Commands](#commands)
+      - [Transaction](#transaction)
+   - [Shutdown](#shutdown)
 3. [Error Reference](#error-reference)
 4. [Best Practices](#best-practices)
 
@@ -81,36 +103,35 @@ func main() {
 }
 ```
 
----
-
 ### Configuration Options
 
-| Parameter           | Type             | Default | Description                                                                                         |
-|---------------------|------------------|---------|-----------------------------------------------------------------------------------------------------|
-| `ShardCount`        | `int`            | `1`     | Number of shards. Higher values improve parallelism under high concurrency.                        |
-| `CleanupInterval`   | `time.Duration`  | `1s`    | Interval for background cleanup of expired keys. Set to `0` to disable cleanup.                   |
-| `EnableLogging`     | `bool`           | `false` | Enables logging of operations.                                                                      |
-| `LogFile`           | `string`         | `""`    | File path for logs. If empty, logs are written to stdout.                                           |
-| `LogBufferSize`     | `int`            | `1000`  | Size of the asynchronous log buffer.                                                              |
-| `MinLevel`          | `logger.LogLevel`| `DEBUG` | Minimum log level. Levels: `DEBUG`, `INFO`, `WARN`, `ERROR`.                                         |
-| `PubSubBufferSize`  | `int`            | `10000` | Buffer size for PubSub channels. If not provided or ≤ 0, defaults to 10000.                           |
+| Parameter           | Type              | Default | Description                                                                                         |
+|---------------------|-------------------|---------|-----------------------------------------------------------------------------------------------------|
+| `ShardCount`        | `int`             | `1`     | Number of shards. Higher values improve parallelism under high concurrency.                        |
+| `CleanupInterval`   | `time.Duration`   | `1s`    | Interval for background cleanup of expired keys. Set to `0` to disable cleanup.                   |
+| `EnableLogging`     | `bool`            | `false` | Enables logging of operations.                                                                      |
+| `LogFile`           | `string`          | `""`    | File path for logs. If empty, logs are written to stdout.                                           |
+| `LogBufferSize`     | `int`             | `1000`  | Size of the asynchronous log buffer.                                                              |
+| `MinLevel`          | `logger.LogLevel` | `DEBUG` | Minimum log level. Levels: `DEBUG`, `INFO`, `WARN`, `ERROR`.                                         |
+| `PubSubBufferSize`  | `int`             | `10000` | Buffer size for PubSub channels. If not provided or ≤ 0, defaults to 10000.                           |
 
 ---
 
 ## 2. Core Methods <a id="core-methods"></a>
 
-### **Key-Value Operations** <a id="key-value-operations"></a>
+### 2.1 Key-Value Operations <a id="key-value-operations"></a>
 
 #### **Set** <a id="set"></a>
 ```go
 err := db.Set(context.Background(), "user", "Test", 60) // TTL = 60 seconds
 ```
-**Description**:  
+**Description:**  
 Sets a key to the given value with an optional TTL.
 
-  **Errors**:
-- `ErrContextCanceled`, `ErrInvalidKey`, `ErrInvalidTTL`.
-
+**Errors:**
+- `ErrContextCanceled`: operation canceled via context.
+- `ErrInvalidKey`: key is empty or improperly formatted.
+- `ErrInvalidTTL`: TTL value is negative or otherwise invalid.
 
 ---
 
@@ -118,22 +139,27 @@ Sets a key to the given value with an optional TTL.
 ```go
 value, err := db.Get(context.Background(), "user")
 ```
-**Description**:  
-Retrieves the value of the specified key.
+**Description:**  
+Retrieves the value of the specified key. If the key is missing or expired, returns `ErrKeyNotFound`.
 
-  **Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrKeyExpired`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+
 ---
 
 #### **SetNX** <a id="setnx"></a>
 ```go
 success, err := db.SetNX(context.Background(), "user", "Test", 60)
 ```
-**Description**:  
-Sets a key only if it does not already exist.
+**Description:**  
+Sets the key only if it does not already exist.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrInvalidKey`, `ErrInvalidTTL`, `ErrKeyExists`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidKey`
+- `ErrInvalidTTL`
+- `ErrKeyExists`
 
 ---
 
@@ -141,11 +167,14 @@ Sets a key only if it does not already exist.
 ```go
 success, err := db.SetXX(context.Background(), "user", "Test", 60)
 ```
-**Description**:  
-Updates a key only if it already exists.
+**Description:**  
+Updates the key only if it already exists.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrInvalidKey`, `ErrInvalidTTL`, `ErrKeyNotFound`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidKey`
+- `ErrInvalidTTL`
+- `ErrKeyNotFound`
 
 ---
 
@@ -153,11 +182,14 @@ Updates a key only if it already exists.
 ```go
 err := db.SetCAS(context.Background(), "user", "old_value", "new_value", 60)
 ```
-**Description**:  
-Updates a key only if its current value matches `old_value`.
+**Description:**  
+Atomically updates a key only if its current value matches the given `old_value`.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrValueMismatch`, `ErrInvalidTTL`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrValueMismatch`
+- `ErrInvalidTTL`
 
 ---
 
@@ -165,26 +197,27 @@ Updates a key only if its current value matches `old_value`.
 ```go
 oldVal, err := db.GetSet(context.Background(), "key", "new_value", 120)
 ```
-**Description**:  
-Atomically sets a new value and returns the previous value.  
-If the key does not exist, sets it and returns `nil`.
+**Description:**  
+Atomically sets a new value and returns the previous one. If the key does not exist, it is set and `nil` is returned.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrInvalidTTL`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidTTL`
 
 ---
 
-### **Atomic Counters** <a id="atomic-counters"></a>
+### 2.2 Atomic Counters <a id="atomic-counters"></a>
 
 #### **Incr** <a id="increment"></a>
 ```go
 newValue, err := db.Incr(context.Background(), "counter")
 ```
-**Description**:  
-Increments the integer value by 1. Initializes key to `1` if missing.
+**Description:**  
+Increments the integer value by 1. If missing, the key is created with the value `1`.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrInvalidValueType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidValueType` – if the current value isn’t an `int64`.
 
 ---
 
@@ -192,43 +225,69 @@ Increments the integer value by 1. Initializes key to `1` if missing.
 ```go
 newValue, err := db.Decr(context.Background(), "counter")
 ```
-**Description**:  
-Decrements the integer value by 1. Initializes key to `-1` if missing.
+**Description:**  
+Decrements the integer value by 1. If missing, the key is created with the value `-1`.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrInvalidValueType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidValueType`
 
 ---
 
-### **List Operations** <a id="list-operations"></a>
+#### **IncrBy** <a id="incrby"></a>
+```go
+newValue, err := db.IncrBy(context.Background(), "counter", 10)
+```
+**Description:**  
+Increments the integer value by the specified amount. If the key is missing, it is created with the specified increment value.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidValueType`
+
+---
+
+#### **DecrBy** <a id="decrby"></a>
+```go
+newValue, err := db.DecrBy(context.Background(), "counter", 5)
+```
+**Description:**  
+Decrements the integer value by the specified amount. If the key is missing, it is created with the negative value of the decrement.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidValueType`
+
+---
+
+### 2.3 List Operations <a id="list-operations"></a>
 
 #### **LPush** <a id="lpush"></a>
 ```go
-// Now accepts one or more values:
 err := db.LPush(context.Background(), "tasks", "task1", "task2")
 ```
-**Description**:  
-Inserts one or more elements at the beginning (left) of the list.  
-Creates the list if it does not exist.  
-**Note:** The updated signature accepts variadic values instead of a single value.
+**Description:**  
+Inserts one or more elements at the beginning (left) of the list. Creates the list if it doesn’t exist.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrInvalidKey`, `ErrInvalidType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidKey`
+- `ErrInvalidType` – if the key exists but isn’t a list.
+- `ErrEmptyValues` – if no values are provided.
 
 ---
 
 #### **RPush** <a id="rpush"></a>
 ```go
-// Now accepts one or more values:
 err := db.RPush(context.Background(), "tasks", "task3", "task4")
 ```
-**Description**:  
-Inserts one or more elements at the end (right) of the list.  
-Creates the list if it does not exist.  
-**Note:** The updated signature accepts variadic values instead of a single value.
+**Description:**  
+Inserts one or more elements at the end (right) of the list. Creates the list if it doesn’t exist.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrInvalidType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidType`
+- `ErrEmptyValues`
 
 ---
 
@@ -236,11 +295,14 @@ Creates the list if it does not exist.
 ```go
 value, err := db.LPop(context.Background(), "tasks")
 ```
-**Description**:  
+**Description:**  
 Removes and returns the first element of the list.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrInvalidType`, `ErrEmptyList`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
+- `ErrEmptyList`
 
 ---
 
@@ -248,11 +310,14 @@ Removes and returns the first element of the list.
 ```go
 value, err := db.RPop(context.Background(), "tasks")
 ```
-**Description**:  
+**Description:**  
 Removes and returns the last element of the list.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrInvalidType`, `ErrEmptyList`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
+- `ErrEmptyList`
 
 ---
 
@@ -260,11 +325,13 @@ Removes and returns the last element of the list.
 ```go
 values, err := db.LRange(context.Background(), "mylist", 0, -1)
 ```
-**Description**:  
-Returns a range of list elements. Supports negative indices for counting from the end.
+**Description:**  
+Returns a slice of list elements from index `start` to `end`. Negative indices are supported for counting from the end.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrEmptyList`, `ErrInvalidType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
 
 ---
 
@@ -272,25 +339,44 @@ Returns a range of list elements. Supports negative indices for counting from th
 ```go
 length, err := db.LLen(context.Background(), "tasks")
 ```
-**Description**:  
-Returns the length of the list.
+**Description:**  
+Returns the number of elements in the list.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrInvalidType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
 
 ---
 
-### **Hash Operations** <a id="hash-operations"></a>
+#### **LTrim** <a id="ltrim"></a>
+```go
+err := db.LTrim(context.Background(), "tasks", 1, 3)
+```
+**Description:**  
+Trims the list, keeping only the elements between the specified start and stop indices.  
+If the resulting list is empty, the key is removed.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
+
+---
+
+### 2.4 Hash Operations <a id="hash-operations"></a>
 
 #### **HSet** <a id="hset"></a>
 ```go
 err := db.HSet(context.Background(), "user", "name", "Test", 0)
 ```
-**Description**:  
-Sets a hash field. Creates the hash if needed. TTL remains unchanged if set to `0`.
+**Description:**  
+Sets a field in the hash. Creates the hash if needed. If TTL is set to 0, the expiration remains unchanged.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrInvalidType`, `ErrInvalidTTL`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidType`
+- `ErrInvalidTTL`
 
 ---
 
@@ -298,11 +384,13 @@ Sets a hash field. Creates the hash if needed. TTL remains unchanged if set to `
 ```go
 value, err := db.HGet(context.Background(), "user", "name")
 ```
-**Description**:  
+**Description:**  
 Retrieves the value for a given hash field.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrInvalidType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
 
 ---
 
@@ -310,11 +398,13 @@ Retrieves the value for a given hash field.
 ```go
 err := db.HDel(context.Background(), "user", "name")
 ```
-**Description**:  
-Deletes a specific hash field. Deletes the key if the hash becomes empty.
+**Description:**  
+Deletes a specific hash field. If the hash becomes empty after deletion, the key is removed.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrInvalidType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
 
 ---
 
@@ -322,11 +412,13 @@ Deletes a specific hash field. Deletes the key if the hash becomes empty.
 ```go
 fields, err := db.HGetAll(context.Background(), "user")
 ```
-**Description**:  
+**Description:**  
 Returns all fields and values in a hash.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrInvalidType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
 
 ---
 
@@ -334,11 +426,13 @@ Returns all fields and values in a hash.
 ```go
 exists, err := db.HExists(context.Background(), "user", "email")
 ```
-**Description**:  
+**Description:**  
 Checks for the existence of a field in a hash.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrInvalidType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
 
 ---
 
@@ -346,37 +440,133 @@ Checks for the existence of a field in a hash.
 ```go
 length, err := db.HLen(context.Background(), "user")
 ```
-**Description**:  
+**Description:**  
 Returns the number of fields in the hash.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrInvalidType`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
 
 ---
 
-### **Utility Methods** <a id="utility-methods"></a>
+### 2.5 Set Operations <a id="set-operations"></a>
+
+#### **SAdd** <a id="sadd"></a>
+```go
+err := db.SAdd(context.Background(), "tags", "go", "redis", "hermes")
+```
+**Description:**  
+Adds one or more members to a set. If the set does not exist, it is created.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidKey`
+- `ErrEmptyValues`
+- `ErrInvalidType`
+
+---
+
+#### **SRem** <a id="srem"></a>
+```go
+err := db.SRem(context.Background(), "tags", "redis")
+```
+**Description:**  
+Removes the specified members from the set. If the set becomes empty, the key is deleted.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
+
+---
+
+#### **SMembers** <a id="smembers"></a>
+```go
+members, err := db.SMembers(context.Background(), "tags")
+```
+**Description:**  
+Returns all members of the set.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
+
+---
+
+#### **SIsMember** <a id="sismember"></a>
+```go
+exists, err := db.SIsMember(context.Background(), "tags", "go")
+```
+**Description:**  
+Checks whether the given member is a member of the set.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
+
+---
+
+#### **SCard** <a id="scard"></a>
+```go
+cardinality, err := db.SCard(context.Background(), "tags")
+```
+**Description:**  
+Returns the number of members in the set.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+- `ErrInvalidType`
+
+---
+
+### 2.6 Utility Methods <a id="utility-methods"></a>
 
 #### **Exists** <a id="exists"></a>
 ```go
 exists, err := db.Exists(context.Background(), "user")
 ```
-**Description**:  
-Checks whether the key exists and is not expired.
+**Description:**  
+Checks if a key exists and its TTL has not expired.
 
-**Errors**:
-- `ErrContextCanceled`.
+**Errors:**
+- `ErrContextCanceled`
 
 ---
 
-#### **UpdateTTL** <a id="updatettl"></a>
+#### **Expire** <a id="expire"></a>
 ```go
-err := db.UpdateTTL(context.Background(), "user", 120)
+success, err := db.Expire(context.Background(), "user", 60)
 ```
-**Description**:  
-Updates the TTL (expiration) of a key.
+**Description:**  
+Sets a new TTL for an existing key.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrInvalidTTL`, `ErrKeyNotFound`.
+**Response:**  
+Returns `true` if successful.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidTTL`
+- `ErrKeyNotFound`
+
+---
+
+#### **Persist** <a id="persist"></a>
+```go
+success, err := db.Persist(context.Background(), "user")
+```
+**Description:**  
+Removes the TTL from a key, making it persistent.
+
+**Response:**  
+Returns `true` if successful.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
 
 ---
 
@@ -384,11 +574,12 @@ Updates the TTL (expiration) of a key.
 ```go
 dataType, err := db.Type(context.Background(), "user")
 ```
-**Description**:  
-Returns the data type of the key (e.g. `String`, `List`, or `Hash`).
+**Description:**  
+Returns the data type of the specified key (e.g., `String`, `List`, `Hash`, `Set`).
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
 
 ---
 
@@ -396,11 +587,12 @@ Returns the data type of the key (e.g. `String`, `List`, or `Hash`).
 ```go
 value, ttl, err := db.GetWithDetails(context.Background(), "user")
 ```
-**Description**:  
-Returns the value along with its TTL (in seconds). TTL is `-1` if the key never expires.
+**Description:**  
+Returns the value along with its remaining TTL (in seconds). If the key does not expire, TTL is `-1`.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`, `ErrKeyExpired`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
 
 ---
 
@@ -408,11 +600,14 @@ Returns the value along with its TTL (in seconds). TTL is `-1` if the key never 
 ```go
 err := db.Rename(context.Background(), "oldKey", "newKey")
 ```
-**Description**:  
+**Description:**  
 Renames an existing key. Fails if the old key doesn’t exist or the new key already exists.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrInvalidKey`, `ErrKeyNotFound`, `ErrKeyExists`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrInvalidKey`
+- `ErrKeyNotFound`
+- `ErrKeyExists`
 
 ---
 
@@ -420,11 +615,12 @@ Renames an existing key. Fails if the old key doesn’t exist or the new key alr
 ```go
 keys, err := db.FindByValue(context.Background(), "Test")
 ```
-**Description**:  
+**Description:**  
 Finds all keys that have the specified value.
 
-**Errors**:
-- `ErrContextCanceled`, `ErrKeyNotFound`.
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
 
 ---
 
@@ -432,11 +628,11 @@ Finds all keys that have the specified value.
 ```go
 err := db.Delete(context.Background(), "user")
 ```
-**Description**:  
-Deletes a key from the store.
+**Description:**  
+Deletes the specified key from the store.
 
-**Errors**:
-- `ErrKeyNotFound`.
+**Errors:**
+- `ErrKeyNotFound`
 
 ---
 
@@ -444,26 +640,141 @@ Deletes a key from the store.
 ```go
 err := db.DropAll(context.Background())
 ```
-**Description**:  
+**Description:**  
 Deletes all keys from the store.
 
-**Errors**:
-- `ErrContextCanceled`.
+**Errors:**
+- `ErrContextCanceled`
+
+---
+
+#### **GetRawEntry** <a id="getrawentry"></a>
+```go
+entry, err := db.GetRawEntry(context.Background(), "user")
+```
+**Description:**  
+Returns the raw internal entry (of type `types.Entry`) for the given key. Useful for debugging or advanced operations.
+
+**Errors:**
+- `ErrContextCanceled`
+- `ErrKeyNotFound`
+
+---
+
+#### **RestoreRawEntry** <a id="restorerawentry"></a>
+```go
+err := db.RestoreRawEntry(context.Background(), "user", entry)
+```
+**Description:**  
+Restores a raw entry for a key into the store. This can be used for state migration or recovery.
+
+**Errors:**
+- `ErrContextCanceled`
+
+---
+
+### 2.7 PubSub / Subscription Methods <a id="pubsub-methods"></a>
+
+#### **Subscribe** <a id="subscribe"></a>
+```go
+ch := db.Subscribe("user")
+```
+**Description:**  
+Creates a new subscription for events on the specified key. Returns a channel (`chan string`) to receive notifications (e.g., for operations like `SET`, `DELETE`, etc.).
+
+---
+
+#### **Unsubscribe** <a id="unsubscribe"></a>
+```go
+db.Unsubscribe("user", ch)
+```
+**Description:**  
+Removes the specified subscription channel for the given key.
+
+---
+
+#### **ListSubscriptions** <a id="listsubscriptions"></a>
+```go
+keys := db.ListSubscriptions()
+```
+**Description:**  
+Returns a list of keys (or topics) for which subscriptions currently exist.
+
+---
+
+#### **CloseAllSubscriptionsForKey** <a id="closeallsubscriptionsforkey"></a>
+```go
+db.CloseAllSubscriptionsForKey("user")
+```
+**Description:**  
+Closes all subscriptions associated with the given key. Useful for resource cleanup when a key is deleted.
+
+---
+
+### 2.8 Accessor Methods <a id="accessor-methods"></a>
+
+#### **Logger** <a id="logger"></a>
+```go
+loggerHandler := db.Logger()
+```
+**Description:**  
+Returns the store's internal logger (an instance of `contracts.LoggerHandler`), allowing integration with external logging systems.
+
+---
+
+#### **Commands** <a id="commands"></a>
+```go
+commandsHandler := db.Commands()
+```
+**Description:**  
+Returns the commands handler for executing advanced or composite commands. (Refer to the commands documentation for more details on the supported API.)
+
+---
+
+#### **Transaction** <a id="transaction"></a>
+```go
+tx := db.Transaction()
+```
+**Description:**  
+Returns a transaction handler to group multiple operations atomically.
+
+---
+
+### 2.9 Shutdown <a id="shutdown"></a>
+
+#### **Close**
+```go
+err := db.Close()
+```
+**Description:**  
+Performs a graceful shutdown of the store:
+- Stops the background expiration cleanup.
+- Closes the PubSub system.
+- Closes the logger.
+
+**Errors:**
+- May return an error if the logger fails to close properly.
 
 ---
 
 ## 3. Error Reference <a id="error-reference"></a>
 
-| Error                | Description                                     | Example Scenario                                  |
-|----------------------|-------------------------------------------------|---------------------------------------------------|
-| `ErrKeyNotFound`     | Key does not exist or has expired               | Calling `Get` on a deleted or expired key         |
-| `ErrInvalidKey`      | Key is empty or improperly formatted            | Calling `Set("", "value", 0)`                     |
-| `ErrInvalidType`     | Operation on a key with an unexpected data type   | Using `LPush` on a key that is not a list          |
-| `ErrEmptyList`       | List is empty during a pop operation             | Calling `LPop` on an empty list                    |
-| `ErrInvalidTTL`      | TTL value is negative                            | Calling `Set("key", "value", -10)`                 |
-| `ErrValueMismatch`   | CAS operation failed: current value ≠ old value  | `SetCAS` with an incorrect `old_value`             |
-| `ErrKeyExists`       | Key already exists when using SETNX              | Calling `SetNX` on an existing key                 |
-| `ErrContextCanceled` | Operation canceled via context                   | Request timeout or manual cancellation             |
+The current implementation uses the following error types:
+
+| Error                 | Description                                                                                              | Example Scenario                                    |
+|-----------------------|----------------------------------------------------------------------------------------------------------|-----------------------------------------------------|
+| **ErrContextCanceled**    | The operation was canceled via context (e.g., due to a timeout).                                      | Request timed out or was manually canceled.         |
+| **ErrInvalidKey**         | The key is empty or improperly formatted.                                                           | Calling `Set("", value, ttl)` results in an error.    |
+| **ErrInvalidTTL**         | The TTL (time-to-live) value is negative or otherwise invalid.                                      | Calling `Set("key", value, -10)`                     |
+| **ErrKeyNotFound**        | The key does not exist or has expired.                                                              | Calling `Get("nonexistent_key")`                     |
+| **ErrValueMismatch**      | CAS operation failed because the current value does not match the expected one.                       | Calling `SetCAS` with an incorrect expected value.   |
+| **ErrKeyExists**          | A key already exists when using conditional operations (e.g., SETNX).                                 | Calling `SetNX` on an existing key.                  |
+| **ErrInvalidType**        | The operation was performed on a key with a different data type (for example, trying LPush on a non-list).| Calling `LPush("user", ...)` when `user` is not a list.|
+| **ErrEmptyList**          | An attempt was made to pop an element from an empty list.                                            | Calling `LPop` on an empty list.                     |
+| **ErrInvalidValueType**   | The value type is not as expected (e.g., a counter operation was applied to a non-`int64` value).        | Calling `Incr` on a key containing a string.         |
+| **ErrEmptyValues**        | No values or members were provided for an operation that requires them.                              | Calling `LPush("tasks")` without any arguments.      |
+
+*Note:* Some errors have been consolidated. For example, a separate error for an expired key is now merged with `ErrKeyNotFound` for simplicity.
 
 ---
 
@@ -475,23 +786,20 @@ Deletes all keys from the store.
    ```go
    ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
    defer cancel()
-
+   
    value, err := db.Get(ctx, "user:123")
    if err != nil {
-       // Handle error (e.g., log or retry)
        log.Printf("Error fetching key: %v", err)
    } else {
        fmt.Println("Value:", value)
    }
    ```
-   **Tip:** Use different timeouts for critical operations versus batch processing.
 
 2. **Check Return Values and Errors Explicitly**  
    Always verify error returns and validate result values. This is especially important for operations that might fail silently or return nil values.  
    **Example:**
    ```go
-   // When performing a CAS operation
-   err := db.SetCAS(context.Background(), "account:balance", "100", "150", 300)
+   err := db.SetCAS(context.Background(), "balance", "100", "150", 300)
    if err != nil {
        if errors.Is(err, hermes.ErrValueMismatch) {
            log.Println("CAS failed: value mismatch")
@@ -502,122 +810,37 @@ Deletes all keys from the store.
        fmt.Println("CAS successful")
    }
    ```
-   **Tip:** Wrap errors or use `errors.Is()` to distinguish between error types.
 
 3. **Monitor Key Expiration and Cleanup**  
-   Use TTL values where appropriate and implement periodic checks if your application relies on long-lived keys.  
-   **Example:**
-   ```go
-   // Set a temporary key with a TTL
-   err := db.Set(context.Background(), "session:abc", "data", 60)
-   if err != nil {
-       log.Printf("Error setting key: %v", err)
-   }
-   
-   // Later, check key existence
-   exists, err := db.Exists(context.Background(), "session:abc")
-   if err != nil {
-       log.Printf("Error checking key: %v", err)
-   } else if !exists {
-       log.Println("Session expired or does not exist, refresh or reinitialize session")
-   }
-   ```
-   **Tip:** Consider client-side caching or periodic refresh logic if key expiration is critical.
+   Use TTL values where appropriate and implement periodic checks if your application relies on long-lived keys. Use Expire and Persist to manage key lifetimes.
 
-4. **Use Shards to Improve Concurrency**  
-   For high-concurrency environments, configure the store with a higher `ShardCount` to reduce lock contention.  
+4. **Use Sharding to Improve Concurrency**  
+   In high-concurrency environments, increase the `ShardCount` to reduce lock contention.  
    **Example:**
    ```go
    db := hermes.NewStore(hermes.Config{
-       ShardCount:      8,                // Increase shards to 8 for better parallelism
+       ShardCount:      8,
        CleanupInterval: 5 * time.Second,
        EnableLogging:   true,
    })
-
-   // In a concurrent scenario, many goroutines can operate on different shards simultaneously.
-   go func() {
-       err := db.Set(context.Background(), "user:1", "Test", 60)
-       if err != nil {
-           log.Println("Error in goroutine 1:", err)
-       }
-   }()
-   go func() {
-       err := db.Set(context.Background(), "user:2", "Bob", 60)
-       if err != nil {
-           log.Println("Error in goroutine 2:", err)
-       }
-   }()
    ```
-   **Tip:** Test different shard counts under load to determine the optimal configuration.
 
-5. **Synchronous vs. Asynchronous Logging**  
-   Adjust `LogBufferSize` and logging options based on your performance needs. Under high load, asynchronous logging (with a larger buffer) may drop messages if the buffer overflows.  
+5. **Leverage PubSub for Real-Time Notifications**  
+   Use the subscription methods to listen for events on keys (such as updates, deletions, or renames) to drive reactive application logic.  
    **Example:**
    ```go
-   db := hermes.NewStore(hermes.Config{
-       EnableLogging:   true,
-       LogFile:         "/var/log/hermes.log",
-       LogBufferSize:   5000,       // Increased buffer size for bursts
-       MinLevel:        hermes.WARN, // Only log warnings and errors
-   })
+   ch := db.Subscribe("user")
+   go func() {
+       for msg := range ch {
+           fmt.Println("Received update:", msg)
+       }
+   }()
+   // To unsubscribe:
+   db.Unsubscribe("user", ch)
    ```
-   **Tip:** Monitor log metrics; if you notice frequent drops, increase the buffer or adjust the log level.
 
-6. **Working with Structured Data**  
-   When dealing with complex data structures, consider the following approaches:
-   - **Using Hashes:**  
-     Use the hash operations (`HSet`, `HGet`, `HGetAll`) to store structured data such as user profiles. Each field in the hash represents a property of the structure.
-     **Example:**
-     ```go
-     // Storing a user structure using a hash:
-     err := db.HSet(context.Background(), "user", "name", "Test", 0)
-     if err != nil {
-         log.Println("Error setting hash field:", err)
-     }
-     err = db.HSet(context.Background(), "user", "email", "test@example.com", 0)
-     if err != nil {
-         log.Println("Error setting hash field:", err)
-     }
-     
-     // Retrieving the entire user structure:
-     fields, err := db.HGetAll(context.Background(), "user")
-     if err != nil {
-         log.Println("Error retrieving user structure:", err)
-     } else {
-         fmt.Printf("User data: %+v\n", fields)
-     }
-     ```
-   - **Using JSON or Custom Encoding:**  
-     Alternatively, you can marshal complex structures to JSON and store them as strings using `Set` and retrieve them using `Get`.  
-     **Example:**
-     ```go
-     type User struct {
-         Name  string `json:"name"`
-         Email string `json:"email"`
-     }
+6. **Group Related Operations in Transactions**  
+   For complex operations that need to be executed atomically, use the Transaction API. This ensures all operations in a transaction are committed together.
 
-     user := User{Name: "Test", Email: "test@example.com"}
-     jsonData, err := json.Marshal(user)
-     if err != nil {
-         log.Fatalf("JSON marshal error: %v", err)
-     }
-     err = db.Set(context.Background(), "user:101", string(jsonData), 0)
-     if err != nil {
-         log.Fatalf("Error setting user data: %v", err)
-     }
-     
-     // Retrieve and unmarshal the JSON data:
-     data, err := db.Get(context.Background(), "user:101")
-     if err != nil {
-         log.Fatalf("Error getting user data: %v", err)
-     }
-     var retrievedUser User
-     err = json.Unmarshal([]byte(data.(string)), &retrievedUser)
-     if err != nil {
-         log.Fatalf("JSON unmarshal error: %v", err)
-     }
-     fmt.Printf("Retrieved User: %+v\n", retrievedUser)
-     ```
-   **Tip:** Choose the method that best fits your application's complexity and performance needs.
-
----
+7. **Configure Logging Appropriately**  
+   Adjust `LogBufferSize` and log levels according to your application's performance and visibility requirements. Monitor log throughput and adjust if necessary.

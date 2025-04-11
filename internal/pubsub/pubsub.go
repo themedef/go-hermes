@@ -2,6 +2,8 @@ package pubsub
 
 import (
 	"sync"
+
+	"github.com/themedef/go-hermes/internal/contracts"
 )
 
 type Config struct {
@@ -14,7 +16,7 @@ type PubSub struct {
 	bufferSize  int
 }
 
-func NewPubSub(config Config) *PubSub {
+func NewPubSub(config Config) contracts.PubSubHandler {
 	bs := 10000
 	if config.BufferSize > 0 {
 		bs = config.BufferSize
@@ -66,11 +68,17 @@ func (ps *PubSub) Unsubscribe(key string, ch chan string) {
 func (ps *PubSub) Publish(key, message string) {
 	ps.mu.RLock()
 	subscribers, exists := ps.subscribers[key]
-	ps.mu.RUnlock()
 	if !exists {
+		ps.mu.RUnlock()
 		return
 	}
+	localChans := make([]chan string, 0, len(subscribers))
 	for ch := range subscribers {
+		localChans = append(localChans, ch)
+	}
+	ps.mu.RUnlock()
+
+	for _, ch := range localChans {
 		select {
 		case ch <- message:
 		default:
@@ -89,7 +97,11 @@ func (ps *PubSub) UnsubscribeAllForKey(key string) {
 	if !exists {
 		return
 	}
+	localChans := make([]chan string, 0, len(subscribers))
 	for ch := range subscribers {
+		localChans = append(localChans, ch)
+	}
+	for _, ch := range localChans {
 		close(ch)
 	}
 }

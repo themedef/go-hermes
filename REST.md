@@ -1,3 +1,5 @@
+
+
 # REST Documentation
 
 ---
@@ -16,6 +18,8 @@
    - [Atomic Counters](#atomic-counters)
       - [Incr](#incr)
       - [Decr](#decr)
+      - [IncrBy](#incrby)
+      - [DecrBy](#decrby)
    - [List Operations](#list-operations)
       - [LPush](#lpush)
       - [RPush](#rpush)
@@ -23,6 +27,7 @@
       - [RPop](#rpop)
       - [LRange](#lrange)
       - [LLen](#llen)
+      - [LTrim](#ltrim)
    - [Hash Operations](#hash-operations)
       - [HSet](#hset)
       - [HGet](#hget)
@@ -30,17 +35,28 @@
       - [HGetAll](#hgetall)
       - [HExists](#hexists)
       - [HLen](#hlen)
+   - [Set Operations](#set-operations)
+      - [SAdd](#sadd)
+      - [SRem](#srem)
+      - [SMembers](#smembers)
+      - [SIsMember](#sismember)
+      - [SCard](#scard)
    - [Utility Methods](#utility-methods)
       - [Exists](#exists)
-      - [UpdateTTL](#updatettl)
+      - [Expire](#expire)
+      - [Persist](#persist)
       - [Type](#type)
       - [GetWithDetails](#getwithdetails)
       - [Rename](#rename)
       - [FindByValue](#findbyvalue)
       - [Delete](#delete)
       - [DropAll](#dropall)
-3. [Global Error Codes](#global-errors)
-4. [Example Usage](#example-usage)
+3. [Subscription Endpoints](#subscription-endpoints)
+   - [Subscribe](#subscribe)
+   - [List Subscriptions](#list-subscriptions)
+   - [Close All Subscriptions](#close-all-subscriptions)
+4. [Global Error Codes](#global-errors)
+5. [Example Usage](#example-usage)
 
 ---
 
@@ -48,7 +64,7 @@
 
 To initialize and run the server, call:
 ```go
-handler := NewAPIHandler(ctx, db) 
+handler := NewAPIHandler(ctx, db)
 handler.RunServer("8080", "api", /* optional middlewares */)
 ```
 - **Port**: The port on which the HTTP server listens (e.g., `8080`).
@@ -60,7 +76,7 @@ handler.RunServer("8080", "api", /* optional middlewares */)
 
 ## 2. Core Methods <a id="core-methods"></a>
 
-Each endpoint below includes an **Errors** section listing the potential HTTP errors and their descriptions.
+(Sections for Key-Value, Atomic Counters, List, Hash, Set, and Utility Methods remain as detailed below.)
 
 ### Key-Value Operations
 
@@ -85,7 +101,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 ```
 **Errors:**
 - **400 Bad Request**: If the request body is missing required fields or is improperly formatted.
-- **500 Internal Server Error**: In case of any unexpected errors (e.g., internal panics).
+- **500 Internal Server Error**: In case of any unexpected errors.
 
 ---
 
@@ -151,7 +167,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
   "ttl": 120
 }
 ```
-*Note: The response returns `"success": false` if the key does not exist (logical failure in a 200 response).*  
+*Note: Returns `"success": false` if the key does not exist (logical failure in a 200 response).*  
 **Errors:**
 - **400 Bad Request**: If the request body is missing or invalid.
 - **500 Internal Server Error**: For any unexpected error.
@@ -214,10 +230,8 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 #### Incr
 **Endpoint**: `POST /incr`  
-**Description**: Increments a key’s numeric value by 1.
-- If the key doesn’t exist, it is created with value `1`.
-- If the key is not an integer, returns an error.
-
+**Description**: Increments a key’s numeric value by 1.  
+If the key doesn’t exist, it is created with value `1`.  
 **Request Body**:
 ```json
 {
@@ -239,10 +253,8 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 #### Decr
 **Endpoint**: `POST /decr`  
-**Description**: Decrements a key’s numeric value by 1.
-- If the key doesn’t exist, it is created with value `-1`.
-- If the key is not an integer, returns an error.
-
+**Description**: Decrements a key’s numeric value by 1.  
+If the key doesn’t exist, it is created with value `-1`.  
 **Request Body**:
 ```json
 {
@@ -259,6 +271,54 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 **Errors:**
 - **400 Bad Request**: If the key exists but its value is not an integer.
 - **500 Internal Server Error**: For unexpected errors.
+
+---
+
+#### IncrBy
+**Endpoint**: `POST /incrby`  
+**Description**: Increments a key’s numeric value by a specified amount.  
+If the key doesn’t exist, it is created with the increment value.  
+**Request Body**:
+```json
+{
+  "key": "counterKey",
+  "increment": 10
+}
+```
+**Response**:
+```json
+{
+  "key": "counterKey",
+  "value": 10
+}
+```
+**Errors:**
+- **400 Bad Request**: If the key exists but its value is not an integer.
+- **500 Internal Server Error**: For unexpected failures.
+
+---
+
+#### DecrBy
+**Endpoint**: `POST /decrby`  
+**Description**: Decrements a key’s numeric value by a specified amount.  
+If the key doesn’t exist, it is created with the negative of the decrement value.  
+**Request Body**:
+```json
+{
+  "key": "counterKey",
+  "decrement": 5
+}
+```
+**Response**:
+```json
+{
+  "key": "counterKey",
+  "value": -5
+}
+```
+**Errors:**
+- **400 Bad Request**: If the key exists but its value is not an integer.
+- **500 Internal Server Error**: For unexpected failures.
 
 ---
 
@@ -283,7 +343,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 }
 ```
 **Errors:**
-- **400 Bad Request**: If the request body is missing required fields or is malformed.
+- **400 Bad Request**: If required fields are missing or request is malformed.
 - **500 Internal Server Error**: For unexpected internal errors.
 
 ---
@@ -332,7 +392,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 ```
 **Errors:**
 - **404 Not Found**: If the list is empty or does not exist.
-- **400 Bad Request**: If the request body is missing or invalid.
+- **400 Bad Request**: If the request body is invalid.
 - **500 Internal Server Error**: For unexpected failures.
 
 ---
@@ -363,7 +423,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 #### LRange
 **Endpoint**: `POST /lrange`  
-**Description**: Retrieves a range of elements from the list at `key`.  
+**Description**: Retrieves a slice of list elements from the specified start to end indices.  
 **Request Body**:
 ```json
 {
@@ -372,8 +432,6 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
   "end": -1
 }
 ```
-*Note: `start`/`end` are zero-based indices; negative indices read from the end (`-1` = last item).*
-
 **Response**:
 ```json
 {
@@ -384,14 +442,14 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 }
 ```
 **Errors:**
-- **400 Bad Request**: If the indices are invalid or the request body is malformed.
+- **400 Bad Request**: If indices are invalid or request body is malformed.
 - **500 Internal Server Error**: For unexpected failures.
 
 ---
 
 #### LLen
 **Endpoint**: `GET /llen?key=<listKey>`  
-**Description**: Returns the length of the list.  
+**Description**: Returns the number of elements in the list.  
 **Response**:
 ```json
 {
@@ -405,11 +463,38 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 ---
 
+#### LTrim
+**Endpoint**: `POST /ltrim`  
+**Description**: Trims the list to retain only the elements within the specified range. If the resulting list is empty, the key is removed.  
+**Request Body**:
+```json
+{
+  "key": "myList",
+  "start": 1,
+  "end": 3
+}
+```
+**Response**:
+```json
+{
+  "message": "LTRIM success",
+  "key": "myList",
+  "start": 1,
+  "end": 3
+}
+```
+**Errors:**
+- **404 Not Found**: If the key does not exist.
+- **400 Bad Request**: If the request body is invalid.
+- **500 Internal Server Error**: For unexpected errors.
+
+---
+
 ### Hash Operations
 
 #### HSet
 **Endpoint**: `POST /hset`  
-**Description**: Sets a `field` in a hash to a specified `value`. Optionally sets a TTL if creating a new hash.  
+**Description**: Sets a `field` in a hash to a specified `value`, optionally setting a TTL.  
 **Request Body**:
 ```json
 {
@@ -428,14 +513,14 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 }
 ```
 **Errors:**
-- **400 Bad Request**: If the request body is missing required fields or is malformed.
-- **500 Internal Server Error**: For any unexpected errors.
+- **400 Bad Request**: If required fields are missing.
+- **500 Internal Server Error**: For unexpected errors.
 
 ---
 
 #### HGet
 **Endpoint**: `GET /hget?key=<hashKey>&field=<fieldName>`  
-**Description**: Retrieves the value for a specific `field` in a hash.  
+**Description**: Retrieves the value of a specific field in a hash.  
 **Response**:
 ```json
 {
@@ -446,14 +531,14 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 ```
 **Errors:**
 - **404 Not Found**: If the key or field does not exist.
-- **400 Bad Request**: If required query parameters are missing or invalid.
+- **400 Bad Request**: If query parameters are missing.
 - **500 Internal Server Error**: For unexpected errors.
 
 ---
 
 #### HDel
 **Endpoint**: `DELETE /hdel`  
-**Description**: Deletes a field from a hash. If the hash becomes empty, the entire key is removed.  
+**Description**: Deletes a field from a hash. If the hash becomes empty after deletion, the key is removed.  
 **Request Body**:
 ```json
 {
@@ -478,7 +563,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 #### HGetAll
 **Endpoint**: `GET /hgetall?key=<hashKey>`  
-**Description**: Retrieves all fields and values from a hash.  
+**Description**: Retrieves all fields and their values from a hash.  
 **Response**:
 ```json
 {
@@ -508,8 +593,8 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 ```
 **Errors:**
 - **404 Not Found**: If the hash does not exist.
-- **400 Bad Request**: If query parameters are missing or invalid.
-- **500 Internal Server Error**: For unexpected failures.
+- **400 Bad Request**: If required query parameters are missing.
+- **500 Internal Server Error**: For unexpected errors.
 
 ---
 
@@ -529,11 +614,112 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 ---
 
+### Set Operations
+
+#### SAdd
+**Endpoint**: `POST /sadd`  
+**Description**: Adds one or more members to a set. If the set does not exist, it is created automatically.  
+**Request Body**:
+```json
+{
+  "key": "tags",
+  "members": ["go", "redis", "hermes"]
+}
+```
+**Response**:
+```json
+{
+  "message": "SADD success",
+  "key": "tags",
+  "count": 3
+}
+```
+**Errors:**
+- **400 Bad Request**: If the request body is missing required fields.
+- **500 Internal Server Error**: For unexpected errors.
+
+---
+
+#### SRem
+**Endpoint**: `POST /srem`  
+**Description**: Removes specified members from a set. If the set becomes empty, the key is deleted.  
+**Request Body**:
+```json
+{
+  "key": "tags",
+  "members": ["redis"]
+}
+```
+**Response**:
+```json
+{
+  "message": "SREM success",
+  "key": "tags",
+  "count": 1
+}
+```
+**Errors:**
+- **404 Not Found**: If the key is not found.
+- **400 Bad Request**: If the request body is invalid.
+- **500 Internal Server Error**: For unexpected errors.
+
+---
+
+#### SMembers
+**Endpoint**: `GET /smembers?key=<setKey>`  
+**Description**: Retrieves all members of the set.  
+**Response**:
+```json
+{
+  "key": "tags",
+  "members": ["go", "redis", "hermes"]
+}
+```
+**Errors:**
+- **404 Not Found**: If the set does not exist.
+- **500 Internal Server Error**: For unexpected errors.
+
+---
+
+#### SIsMember
+**Endpoint**: `GET /sismember?key=<setKey>&member=<memberValue>`  
+**Description**: Checks whether the specified member exists in the set.  
+**Response**:
+```json
+{
+  "key": "tags",
+  "member": "go",
+  "is_member": true
+}
+```
+**Errors:**
+- **404 Not Found**: If the set does not exist.
+- **400 Bad Request**: If required query parameters are missing.
+- **500 Internal Server Error**: For unexpected errors.
+
+---
+
+#### SCard
+**Endpoint**: `GET /scard?key=<setKey>`  
+**Description**: Returns the number of members in the set.  
+**Response**:
+```json
+{
+  "key": "tags",
+  "count": 3
+}
+```
+**Errors:**
+- **404 Not Found**: If the set does not exist.
+- **500 Internal Server Error**: For unexpected errors.
+
+---
+
 ### Utility Methods
 
 #### Exists
 **Endpoint**: `GET /exists?key=<keyName>`  
-**Description**: Checks whether a given key exists (and is not expired).  
+**Description**: Checks whether a given key exists and is not expired.  
 **Response**:
 ```json
 {
@@ -546,9 +732,9 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 ---
 
-#### UpdateTTL
-**Endpoint**: `POST /ttl`  
-**Description**: Updates the TTL (time-to-live) for an existing key.  
+#### Expire
+**Endpoint**: `POST /expire`  
+**Description**: Sets a TTL (in seconds) for a key.  
 **Request Body**:
 ```json
 {
@@ -559,21 +745,44 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 **Response**:
 ```json
 {
-  "message": "TTL updated",
   "key": "myKey",
-  "ttl": 60
+  "ttl": 60,
+  "success": true
 }
 ```
 **Errors:**
-- **404 Not Found**: If the key is missing or expired.
-- **400 Bad Request**: If the request body is missing required fields or is malformed.
+- **404 Not Found**: If the key does not exist.
+- **400 Bad Request**: If the request body is invalid.
+- **500 Internal Server Error**: For unexpected errors.
+
+---
+
+#### Persist
+**Endpoint**: `POST /persist`  
+**Description**: Removes the TTL from a key, making it persistent.  
+**Request Body**:
+```json
+{
+  "key": "myKey"
+}
+```
+**Response**:
+```json
+{
+  "key": "myKey",
+  "success": true
+}
+```
+**Errors:**
+- **404 Not Found**: If the key does not exist or is already persistent.
+- **400 Bad Request**: If the request body is invalid.
 - **500 Internal Server Error**: For unexpected errors.
 
 ---
 
 #### Type
 **Endpoint**: `GET /type?key=<keyName>`  
-**Description**: Returns the internal data type of the key (e.g., `String`, `List`, `Hash`, etc.).  
+**Description**: Returns the internal data type of the key (e.g., `String`, `List`, `Hash`, or `Set`).  
 **Response**:
 ```json
 {
@@ -581,7 +790,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
   "type": 0
 }
 ```
-*Note: In the default store, `0` = String, `1` = List, `2` = Hash.*  
+*Note: In the default store, `0` = String, `1` = List, `2` = Hash, `3` = Set.*  
 **Errors:**
 - **404 Not Found**: If the key does not exist.
 - **500 Internal Server Error**: For unexpected errors.
@@ -590,7 +799,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 #### GetWithDetails
 **Endpoint**: `GET /details?key=<keyName>`  
-**Description**: Retrieves the value of a key along with its current TTL.  
+**Description**: Retrieves the value of a key along with its remaining TTL (in seconds).  
 **Response**:
 ```json
 {
@@ -608,7 +817,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 #### Rename
 **Endpoint**: `POST /rename`  
-**Description**: Renames a key to a new name, provided that the old key exists and the new key does not.  
+**Description**: Renames a key to a new key name, provided the old key exists and the new key does not.  
 **Request Body**:
 ```json
 {
@@ -625,8 +834,8 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 }
 ```
 **Errors:**
-- **409 Conflict**: If the `new_key` already exists.
-- **404 Not Found**: If the `old_key` does not exist.
+- **409 Conflict**: If the new key already exists.
+- **404 Not Found**: If the old key does not exist.
 - **400 Bad Request**: If the request body is invalid.
 - **500 Internal Server Error**: For unexpected errors.
 
@@ -657,7 +866,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 #### Delete
 **Endpoint**: `POST /delete`  
-**Description**: Deletes the specified key.  
+**Description**: Deletes the specified key from the store.  
 **Request Body**:
 ```json
 {
@@ -680,7 +889,7 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 
 #### DropAll
 **Endpoint**: `POST /dropall`  
-**Description**: Removes **all keys** from the store. Use with caution!  
+**Description**: Removes all keys from the store. Use with caution!  
 **Response**:
 ```json
 {
@@ -688,33 +897,99 @@ Each endpoint below includes an **Errors** section listing the potential HTTP er
 }
 ```
 **Errors:**
-- **500 Internal Server Error**: For unexpected errors during this dangerous operation.
+- **500 Internal Server Error**: For any unexpected errors during this operation.
 
 ---
 
-## 3. Global Error Codes <a id="global-errors"></a>
+## 3. Subscription Endpoints <a id="subscription-endpoints"></a>
 
-In addition to the endpoint-specific errors above, the following HTTP error codes are commonly used throughout the API:
+These endpoints allow clients to subscribe to key-specific events, list active subscriptions, and close subscriptions.
+
+#### Subscribe
+**Endpoint**: `GET /subscribe?key=<keyName>`  
+**Description:**  
+Opens a Server-Sent Events (SSE) connection for the specified key. Notifications about key events (e.g., updates, deletions, expirations) are sent as streaming data.  
+**Response:**
+- The connection remains open and sends data in the following format:
+  ```
+  data: Subscribed to myKey
+
+  data: SET: newValue
+
+  ...
+  ```
+**Headers to note:**
+- `Content-Type`: `text/event-stream`
+- `Cache-Control`: `no-cache`
+- `Connection`: `keep-alive`
+
+**Errors:**
+- **400 Bad Request**: If the `key` parameter is missing.
+- **500 Internal Server Error**: If the connection cannot be established or if streaming is unsupported.
+
+---
+
+#### List Subscriptions
+**Endpoint**: `GET /subscriptions`  
+**Description:**  
+Returns a JSON array of keys (or topics) that currently have active subscriptions.  
+**Response:** (`200 OK`)
+```json
+{
+  "subscriptions": ["myKey", "anotherKey"]
+}
+```
+**Errors:**
+- **500 Internal Server Error**: For unexpected errors.
+
+---
+
+#### Close All Subscriptions
+**Endpoint**: `POST /closeallsub`  
+**Description:**  
+Closes all active subscriptions associated with the specified key.  
+**Request Body:**
+```json
+{
+  "key": "myKey"
+}
+```
+**Response:**
+```json
+{
+  "message": "All subscriptions closed for key",
+  "key": "myKey"
+}
+```
+**Errors:**
+- **400 Bad Request**: If the `key` field is missing or empty.
+- **500 Internal Server Error**: For any errors encountered while closing subscriptions.
+
+---
+
+## 4. Global Error Codes <a id="global-errors"></a>
+
+In addition to the endpoint-specific errors, the API uses the following standard HTTP error codes:
 
 - **400 Bad Request**  
   Returned when the request is malformed, missing required fields, or contains invalid parameters.
 
 - **404 Not Found**  
-  Returned when a key, list element, or hash field does not exist or has expired.
+  Returned when a key, list, hash field, or subscription is not found or has expired.
 
 - **409 Conflict**  
-  Returned when there is a logical conflict (e.g., in `SetCAS` or `Rename` operations).
+  Returned for logical conflicts (e.g., in `SetCAS` or `Rename` operations).
 
 - **500 Internal Server Error**  
-  Returned for any unexpected or internal errors.
+  Returned for unexpected or internal errors.
 
-Each error response may include a JSON body with an `"error"` field containing a plain text message (e.g., `{ "error": "Key not found" }`).
+Error responses include a JSON body with an `"error"` field (e.g., `{ "error": "Key not found" }`).
 
 ---
 
-## 4. Example Usage <a id="example-usage"></a>
+## 5. Example Usage <a id="example-usage"></a>
 
-1. **Setting a key**:
+1. **Setting a Key**:
    ```bash
    curl -X POST -H "Content-Type: application/json" \
    -d '{"key":"hello","value":"world","ttl":30}' \
@@ -729,11 +1004,11 @@ Each error response may include a JSON body with an `"error"` field containing a
    }
    ```
 
-2. **Getting a key**:
+2. **Getting a Key**:
    ```bash
    curl -X GET "http://localhost:8080/api/get?key=hello"
    ```
-   **Possible Response**:
+   **Response**:
    ```json
    {
      "key": "hello",
@@ -741,7 +1016,7 @@ Each error response may include a JSON body with an `"error"` field containing a
    }
    ```
 
-3. **Incrementing a counter**:
+3. **Incrementing a Counter**:
    ```bash
    curl -X POST -H "Content-Type: application/json" \
    -d '{"key":"counter"}' \
@@ -755,7 +1030,64 @@ Each error response may include a JSON body with an `"error"` field containing a
    }
    ```
 
-4. **Working with a list**:
+4. **Incrementing by a Specific Value**:
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+   -d '{"key":"counter", "increment": 10}' \
+   http://localhost:8080/api/incrby
+   ```
+   **Response**:
+   ```json
+   {
+     "key": "counter",
+     "value": 10
+   }
+   ```
+
+5. **Decrementing by a Specific Value**:
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+   -d '{"key":"counter", "decrement": 5}' \
+   http://localhost:8080/api/decrby
+   ```
+   **Response**:
+   ```json
+   {
+     "key": "counter",
+     "value": -5
+   }
+   ```
+
+6. **Setting a TTL using Expire**:
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+   -d '{"key":"hello","ttl":60}' \
+   http://localhost:8080/api/expire
+   ```
+   **Response**:
+   ```json
+   {
+     "key": "hello",
+     "ttl": 60,
+     "success": true
+   }
+   ```
+
+7. **Removing TTL using Persist**:
+   ```bash
+   curl -X POST -H "Content-Type: application/json" \
+   -d '{"key":"hello"}' \
+   http://localhost:8080/api/persist
+   ```
+   **Response**:
+   ```json
+   {
+     "key": "hello",
+     "success": true
+   }
+   ```
+
+8. **Working with a List**:
    ```bash
    # LPush
    curl -X POST -H "Content-Type: application/json" \
@@ -766,7 +1098,7 @@ Each error response may include a JSON body with an `"error"` field containing a
    -d '{"key":"myList"}' \
    http://localhost:8080/api/lpop
    ```
-   **LPop Response (if successful)**:
+   **LPop Response**:
    ```json
    {
      "message": "LPOP success",
@@ -775,13 +1107,12 @@ Each error response may include a JSON body with an `"error"` field containing a
    }
    ```
 
-5. **Working with a hash**:
+9. **Working with a Hash**:
    ```bash
    # HSet
    curl -X POST -H "Content-Type: application/json" \
-   -d '{"key":"user:1","field":"name","value":"Test"}' \
+   -d '{"key":"user:1","field":"name","value":"Test","ttl":60}' \
    http://localhost:8080/api/hset
-
    # HGet
    curl -X GET "http://localhost:8080/api/hget?key=user:1&field=name"
    ```
@@ -794,18 +1125,82 @@ Each error response may include a JSON body with an `"error"` field containing a
    }
    ```
 
-6. **Finding keys by value**:
-   ```bash
-   curl -X POST -H "Content-Type: application/json" \
-   -d '{"value":"Test"}' \
-   http://localhost:8080/api/find
-   ```
-   **Possible Response**:
-   ```json
-   {
-     "value": "Test",
-     "keys": ["user:1", "someOtherKey"]
-   }
-   ```
+10. **Finding Keys by Value**:
+    ```bash
+    curl -X POST -H "Content-Type: application/json" \
+    -d '{"value":"Test"}' \
+    http://localhost:8080/api/find
+    ```
+    **Response**:
+    ```json
+    {
+      "value": "Test",
+      "keys": ["user:1", "someOtherKey"]
+    }
+    ```
 
----
+11. **Deleting a Key**:
+    ```bash
+    curl -X POST -H "Content-Type: application/json" \
+    -d '{"key":"myKey"}' \
+    http://localhost:8080/api/delete
+    ```
+    **Response**:
+    ```json
+    {
+      "message": "Deleted",
+      "key": "myKey"
+    }
+    ```
+
+12. **Dropping All Keys**:
+    ```bash
+    curl -X POST http://localhost:8080/api/dropall
+    ```
+    **Response**:
+    ```json
+    {
+      "message": "All keys dropped"
+    }
+    ```
+
+13. **Subscribing to Key Events**:
+    ```bash
+    curl -N -X GET "http://localhost:8080/api/subscribe?key=myKey"
+    ```
+    **Response**:  
+    A persistent server-sent event (SSE) stream that might output:
+    ```
+    data: Subscribed to myKey
+
+    data: SET: newValue
+
+    data: DELETE
+
+    ...
+    ```
+
+14. **Listing Active Subscriptions**:
+    ```bash
+    curl -X GET "http://localhost:8080/api/subscriptions"
+    ```
+    **Response**:
+    ```json
+    {
+      "subscriptions": ["myKey", "anotherKey"]
+    }
+    ```
+
+15. **Closing All Subscriptions for a Key**:
+    ```bash
+    curl -X POST -H "Content-Type: application/json" \
+    -d '{"key":"myKey"}' \
+    http://localhost:8080/api/closeallsub
+    ```
+    **Response**:
+    ```json
+    {
+      "message": "All subscriptions closed for key",
+      "key": "myKey"
+    }
+    ```

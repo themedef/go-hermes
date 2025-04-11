@@ -3,17 +3,20 @@ package hermes
 import (
 	"context"
 	"errors"
+	"github.com/themedef/go-hermes/internal/contracts"
+	"github.com/themedef/go-hermes/internal/types"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 )
 
-func setupTestDB() *DB {
+func setupTestDB() contracts.StoreHandler {
 	config := Config{}
 	return NewStore(config)
 }
 
+// TestTransactionSetCommit checks that a Set inside a transaction is committed correctly.
 func TestTransactionSetCommit(t *testing.T) {
 	db := setupTestDB()
 	tx := db.Transaction()
@@ -28,16 +31,15 @@ func TestTransactionSetCommit(t *testing.T) {
 	}
 
 	val, err := db.Get(ctx, "test_key")
-	if errors.Is(err, ErrKeyNotFound) {
-		t.Fatalf("Expected key='value', but got not found")
-	} else if err != nil {
-		t.Fatalf("Unexpected Get error: %v", err)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
 	}
 	if val != "value" {
 		t.Fatalf("Expected 'value', got %v", val)
 	}
 }
 
+// TestTransactionSetRollback checks that a Set is rolled back properly.
 func TestTransactionSetRollback(t *testing.T) {
 	db := setupTestDB()
 	tx := db.Transaction()
@@ -57,10 +59,14 @@ func TestTransactionSetRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionDeleteCommit checks that Delete is committed correctly.
 func TestTransactionDeleteCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "test_key", "value", 60)
+
+	if err := db.Set(ctx, "test_key", "value", 60); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 
@@ -78,10 +84,14 @@ func TestTransactionDeleteCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionDeleteRollback checks that Delete is rolled back correctly.
 func TestTransactionDeleteRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "test_key", "value", 60)
+
+	if err := db.Set(ctx, "test_key", "value", 60); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 
@@ -104,10 +114,14 @@ func TestTransactionDeleteRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionIncrCommit checks that Incr is committed properly.
 func TestTransactionIncrCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "counter", int64(1), 0)
+
+	if err := db.Set(ctx, "counter", int64(1), 0); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 
@@ -128,10 +142,14 @@ func TestTransactionIncrCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionDecrCommit checks that Decr is committed properly.
 func TestTransactionDecrCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "counter", int64(1), 0)
+
+	if err := db.Set(ctx, "counter", int64(1), 0); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 
@@ -152,10 +170,14 @@ func TestTransactionDecrCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionIncrRollback checks that an Incr is rolled back properly.
 func TestTransactionIncrRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "counter", int64(1), 0)
+
+	if err := db.Set(ctx, "counter", int64(1), 0); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 
@@ -176,10 +198,14 @@ func TestTransactionIncrRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionDecrRollback checks that a Decr is rolled back properly.
 func TestTransactionDecrRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "counter", int64(1), 0)
+
+	if err := db.Set(ctx, "counter", int64(1), 0); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 
@@ -200,19 +226,23 @@ func TestTransactionDecrRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionSetNXExists checks that SetNX on an existing key
+// causes transaction failure on commit.
 func TestTransactionSetNXExists(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "nxKey", "alreadyHere", 0)
+
+	if err := db.Set(ctx, "nxKey", "alreadyHere", 0); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 
-	err := tx.SetNX(ctx, "nxKey", "newVal", 0)
-	if err != nil {
+	if err := tx.SetNX(ctx, "nxKey", "newVal", 0); err != nil {
 		t.Fatalf("SetNX returned error: %v", err)
 	}
 
-	err = tx.Commit()
+	err := tx.Commit()
 	if !errors.Is(err, ErrTransactionFailed) {
 		t.Fatalf("Expected ErrTransactionFailed, got: %v", err)
 	}
@@ -226,18 +256,19 @@ func TestTransactionSetNXExists(t *testing.T) {
 	}
 }
 
+// TestTransactionSetXXNotExists checks that SetXX on a missing key
+// causes transaction failure on commit.
 func TestTransactionSetXXNotExists(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
 	tx := db.Transaction()
 
-	err := tx.SetXX(ctx, "xxKey", "val", 0)
-	if err != nil {
+	if err := tx.SetXX(ctx, "xxKey", "val", 0); err != nil {
 		t.Fatalf("SetXX returned error: %v", err)
 	}
 
-	err = tx.Commit()
+	err := tx.Commit()
 	if !errors.Is(err, ErrTransactionFailed) {
 		t.Fatalf("Expected ErrTransactionFailed, got: %v", err)
 	}
@@ -248,19 +279,22 @@ func TestTransactionSetXXNotExists(t *testing.T) {
 	}
 }
 
+// TestTransactionSetCASWrongOld checks that a wrong oldValue for CAS leads to transaction failure on commit.
 func TestTransactionSetCASWrongOld(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "casKey", "initial", 0)
+
+	if err := db.Set(ctx, "casKey", "initial", 0); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 
-	err := tx.SetCAS(ctx, "casKey", "wrong", "new", 0)
-	if err != nil {
+	if err := tx.SetCAS(ctx, "casKey", "wrong", "new", 0); err != nil {
 		t.Fatalf("SetCAS returned error: %v", err)
 	}
 
-	err = tx.Commit()
+	err := tx.Commit()
 	if !errors.Is(err, ErrTransactionFailed) {
 		t.Fatalf("Expected ErrTransactionFailed, got: %v", err)
 	}
@@ -274,15 +308,19 @@ func TestTransactionSetCASWrongOld(t *testing.T) {
 	}
 }
 
-func TestTransactionUpdateTTLCommit(t *testing.T) {
+// TestTransactionExpireCommit checks that Expire inside a transaction extends TTL on commit.
+func TestTransactionExpireCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "ttlKey", "hasTTL", 1)
+
+	if err := db.Set(ctx, "ttlKey", "hasTTL", 1); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 
-	if err := tx.UpdateTTL(ctx, "ttlKey", 3); err != nil {
-		t.Fatalf("UpdateTTL in transaction failed: %v", err)
+	if err := tx.Expire(ctx, "ttlKey", 3); err != nil {
+		t.Fatalf("Expire in transaction failed: %v", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -301,14 +339,19 @@ func TestTransactionUpdateTTLCommit(t *testing.T) {
 	}
 }
 
-func TestTransactionUpdateTTLRollback(t *testing.T) {
+// TestTransactionExpireRollback checks that an Expire call is rolled back if the transaction is rolled back.
+func TestTransactionExpireRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "ttlKey", "hello", 1)
+
+	if err := db.Set(ctx, "ttlKey", "hello", 1); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
-	if err := tx.UpdateTTL(ctx, "ttlKey", 5); err != nil {
-		t.Fatalf("UpdateTTL in transaction failed: %v", err)
+
+	if err := tx.Expire(ctx, "ttlKey", 5); err != nil {
+		t.Fatalf("Expire in transaction failed: %v", err)
 	}
 
 	if err := tx.Rollback(); err != nil {
@@ -322,10 +365,14 @@ func TestTransactionUpdateTTLRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionConcurrentIncrements checks concurrent commits of small Incr transactions.
 func TestTransactionConcurrentIncrements(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
-	_ = db.Set(ctx, "sharedCounter", int64(0), 0)
+
+	if err := db.Set(ctx, "sharedCounter", int64(0), 0); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	const workers = 2
 	const increments = 5
@@ -361,6 +408,7 @@ func TestTransactionConcurrentIncrements(t *testing.T) {
 	}
 }
 
+// TestTransactionLPushCommit checks that LPush is committed properly.
 func TestTransactionLPushCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
@@ -382,6 +430,7 @@ func TestTransactionLPushCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionLPushRollback checks that LPush is rolled back properly.
 func TestTransactionLPushRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
@@ -400,6 +449,7 @@ func TestTransactionLPushRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionRPushCommit checks that RPush is committed properly.
 func TestTransactionRPushCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
@@ -421,6 +471,7 @@ func TestTransactionRPushCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionRPushRollback checks that RPush is rolled back properly.
 func TestTransactionRPushRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
@@ -439,11 +490,14 @@ func TestTransactionRPushRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionLPopCommit checks that LPop is committed properly.
 func TestTransactionLPopCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.LPush(ctx, "listKey", "val1")
+	if err := db.LPush(ctx, "listKey", "val1"); err != nil {
+		t.Fatalf("Setup LPush failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	popped, err := tx.LPop(ctx, "listKey")
@@ -464,13 +518,13 @@ func TestTransactionLPopCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionLPopRollback checks that LPop is rolled back properly.
 func TestTransactionLPopRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	err := db.LPush(ctx, "listKey", "val2", "val1")
-	if err != nil {
-		t.Fatalf("Setup failed: %v", err)
+	if err := db.LPush(ctx, "listKey", "val2", "val1"); err != nil {
+		t.Fatalf("Setup LPush failed: %v", err)
 	}
 
 	tx := db.Transaction()
@@ -497,11 +551,14 @@ func TestTransactionLPopRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionRPopCommit checks that RPop is committed properly.
 func TestTransactionRPopCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.RPush(ctx, "listKey", "val1")
+	if err := db.RPush(ctx, "listKey", "val1"); err != nil {
+		t.Fatalf("Setup RPush failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	popped, err := tx.RPop(ctx, "listKey")
@@ -525,12 +582,13 @@ func TestTransactionRPopCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionRPopRollback checks that RPop is rolled back properly.
 func TestTransactionRPopRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
 	if err := db.LPush(ctx, "listKey", "val2", "val1"); err != nil {
-		t.Fatalf("Setup failed: %v", err)
+		t.Fatalf("Setup LPush failed: %v", err)
 	}
 
 	tx := db.Transaction()
@@ -557,12 +615,17 @@ func TestTransactionRPopRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionLLenAndLRangeCommit checks that LLen and LRange work after committing changes.
 func TestTransactionLLenAndLRangeCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.RPush(ctx, "listKey", "one")
-	_ = db.RPush(ctx, "listKey", "two")
+	if err := db.RPush(ctx, "listKey", "one"); err != nil {
+		t.Fatalf("Setup RPush failed: %v", err)
+	}
+	if err := db.RPush(ctx, "listKey", "two"); err != nil {
+		t.Fatalf("Setup RPush failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	if err := tx.RPush(ctx, "listKey", "three"); err != nil {
@@ -590,6 +653,7 @@ func TestTransactionLLenAndLRangeCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionHSetCommit checks that HSet is committed properly.
 func TestTransactionHSetCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
@@ -611,6 +675,7 @@ func TestTransactionHSetCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionHSetRollback checks that HSet is rolled back properly.
 func TestTransactionHSetRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
@@ -629,11 +694,14 @@ func TestTransactionHSetRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionHDelCommit checks that HDel is committed properly.
 func TestTransactionHDelCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.HSet(ctx, "hashKey", "field1", "value1", 0)
+	if err := db.HSet(ctx, "hashKey", "field1", "value1", 0); err != nil {
+		t.Fatalf("Setup HSet failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	if err := tx.HDel(ctx, "hashKey", "field1"); err != nil {
@@ -649,11 +717,14 @@ func TestTransactionHDelCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionHDelRollback checks that HDel is rolled back properly.
 func TestTransactionHDelRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.HSet(ctx, "hashKey", "field1", "value1", 0)
+	if err := db.HSet(ctx, "hashKey", "field1", "value1", 0); err != nil {
+		t.Fatalf("Setup HSet failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	if err := tx.HDel(ctx, "hashKey", "field1"); err != nil {
@@ -672,11 +743,14 @@ func TestTransactionHDelRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionHGetAllCommit checks that HGetAll sees changes after commit.
 func TestTransactionHGetAllCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.HSet(ctx, "hashKey", "field1", "val1", 0)
+	if err := db.HSet(ctx, "hashKey", "field1", "val1", 0); err != nil {
+		t.Fatalf("Setup HSet failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	if err := tx.HSet(ctx, "hashKey", "field2", "val2", 0); err != nil {
@@ -695,11 +769,14 @@ func TestTransactionHGetAllCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionHExistsAndHLenCommit checks that HExists and HLen reflect changes after commit.
 func TestTransactionHExistsAndHLenCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.HSet(ctx, "hashKey", "field1", "val1", 0)
+	if err := db.HSet(ctx, "hashKey", "field1", "val1", 0); err != nil {
+		t.Fatalf("Setup HSet failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	if err := tx.HSet(ctx, "hashKey", "field2", "val2", 0); err != nil {
@@ -726,11 +803,14 @@ func TestTransactionHExistsAndHLenCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionExistsCommit checks that Exists reflects transaction changes after commit.
 func TestTransactionExistsCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.Set(ctx, "someKey", "someValue", 0)
+	if err := db.Set(ctx, "someKey", "someValue", 0); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	exists, err := tx.Exists(ctx, "someKey")
@@ -749,24 +829,30 @@ func TestTransactionExistsCommit(t *testing.T) {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
-	ok, _ := db.Exists(ctx, "someKey")
+	ok, err := db.Exists(ctx, "someKey")
+	if err != nil {
+		t.Fatalf("Exists after commit error: %v", err)
+	}
 	if ok {
 		t.Fatalf("Expected someKey to be gone")
 	}
 }
 
+// TestTransactionTypeCommit checks that Type returns the correct type within a transaction.
 func TestTransactionTypeCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.Set(ctx, "strKey", "val", 0)
+	if err := db.Set(ctx, "strKey", "val", 0); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	typ, err := tx.Type(ctx, "strKey")
 	if err != nil {
 		t.Fatalf("Type in transaction error: %v", err)
 	}
-	if typ != String {
+	if typ != types.String {
 		t.Fatalf("Expected type=String, got %v", typ)
 	}
 
@@ -775,11 +861,14 @@ func TestTransactionTypeCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionGetWithDetailsCommit checks that GetWithDetails returns correct TTL inside a transaction.
 func TestTransactionGetWithDetailsCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.Set(ctx, "detailKey", "detailedVal", 5)
+	if err := db.Set(ctx, "detailKey", "detailedVal", 5); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	val, ttl, err := tx.GetWithDetails(ctx, "detailKey")
@@ -798,11 +887,22 @@ func TestTransactionGetWithDetailsCommit(t *testing.T) {
 	}
 }
 
+// TestTransactionRenameCommit checks that Rename is committed properly.
 func TestTransactionRenameCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.Set(ctx, "oldKey", "oldVal", 0)
+	if err := db.Set(ctx, "oldKey", "oldVal", 60); err != nil {
+		t.Fatalf("Setup Set failed: %v", err)
+	}
+
+	val, err := db.Get(ctx, "oldKey")
+	if err != nil {
+		t.Fatalf("Get(oldKey) failed: %v", err)
+	}
+	if val != "oldVal" {
+		t.Fatalf("Expected oldVal, got %v", val)
+	}
 
 	tx := db.Transaction()
 	if err := tx.Rename(ctx, "oldKey", "newKey"); err != nil {
@@ -812,27 +912,31 @@ func TestTransactionRenameCommit(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
-
-	_, err := db.Get(ctx, "oldKey")
-	if !errors.Is(err, ErrKeyNotFound) {
+	_, err = db.Get(ctx, "oldKey")
+	if !IsKeyNotFound(err) {
 		t.Fatalf("Expected oldKey to not exist, got %v", err)
 	}
 
-	val, err := db.Get(ctx, "newKey")
+	val, err = db.Get(ctx, "newKey")
 	if err != nil {
 		t.Fatalf("Get(newKey) failed: %v", err)
 	}
 	if val != "oldVal" {
-		t.Fatalf("Expected 'oldVal', got %v", val)
+		t.Fatalf("Expected 'oldVal' in newKey, got %v", val)
 	}
 }
 
+// TestTransactionRenameRollback checks that Rename is rolled back properly.
 func TestTransactionRenameRollback(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.Set(ctx, "oldKey", "oldVal", 0)
-	_ = db.Set(ctx, "anotherKey", "someVal", 0)
+	if err := db.Set(ctx, "oldKey", "oldVal", 0); err != nil {
+		t.Fatalf("Setup oldKey failed: %v", err)
+	}
+	if err := db.Set(ctx, "anotherKey", "someVal", 0); err != nil {
+		t.Fatalf("Setup anotherKey failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	if err := tx.Rename(ctx, "oldKey", "anotherKey"); err != nil {
@@ -860,15 +964,18 @@ func TestTransactionRenameRollback(t *testing.T) {
 	}
 }
 
+// TestTransactionFindByValueCommit checks that FindByValue sees newly created keys after commit.
 func TestTransactionFindByValueCommit(t *testing.T) {
 	db := setupTestDB()
 	ctx := context.Background()
 
-	_ = db.Set(ctx, "k1", "look", 0)
+	if err := db.Set(ctx, "k1", "look", 0); err != nil {
+		t.Fatalf("Setup Set(k1) failed: %v", err)
+	}
 
 	tx := db.Transaction()
 	if err := tx.Set(ctx, "k2", "look", 0); err != nil {
-		t.Fatalf("Set in transaction failed: %v", err)
+		t.Fatalf("Set(k2) in transaction failed: %v", err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
@@ -880,5 +987,230 @@ func TestTransactionFindByValueCommit(t *testing.T) {
 	}
 	if len(keys) != 2 {
 		t.Fatalf("Expected 2 keys, got %d (%v)", len(keys), keys)
+	}
+}
+
+// TestTransactionSAddCommit checks that SAdd is committed properly.
+func TestTransactionSAddCommit(t *testing.T) {
+	db := setupTestDB()
+	ctx := context.Background()
+
+	tx := db.Transaction()
+	if err := tx.SAdd(ctx, "colors", "red", "green", "blue"); err != nil {
+		t.Fatalf("SAdd in transaction failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	members, err := db.SMembers(ctx, "colors")
+	if err != nil {
+		t.Fatalf("SMembers failed: %v", err)
+	}
+	if len(members) != 3 {
+		t.Fatalf("Expected 3 members, got %d", len(members))
+	}
+}
+
+// TestTransactionSAddRollback checks that SAdd is rolled back properly.
+func TestTransactionSAddRollback(t *testing.T) {
+	db := setupTestDB()
+	ctx := context.Background()
+
+	tx := db.Transaction()
+	if err := tx.SAdd(ctx, "colors", "red", "green"); err != nil {
+		t.Fatalf("SAdd in transaction failed: %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+
+	_, err := db.SMembers(ctx, "colors")
+	if !IsKeyNotFound(err) {
+		t.Fatalf("Expected ErrKeyNotFound after rollback, got %v", err)
+	}
+}
+
+// TestTransactionSRemCommit checks that SRem is committed properly.
+func TestTransactionSRemCommit(t *testing.T) {
+	db := setupTestDB()
+	ctx := context.Background()
+
+	if err := db.SAdd(ctx, "numbers", 1, 2, 3, 4, 5); err != nil {
+		t.Fatalf("SAdd setup failed: %v", err)
+	}
+
+	tx := db.Transaction()
+	if err := tx.SRem(ctx, "numbers", 2, 4); err != nil {
+		t.Fatalf("SRem in transaction failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	members, err := db.SMembers(ctx, "numbers")
+	if err != nil {
+		t.Fatalf("SMembers error: %v", err)
+	}
+	for _, m := range members {
+		if m == 2 || m == 4 {
+			t.Fatalf("Expected members 2 and 4 to be removed, but found %v", m)
+		}
+	}
+}
+
+// TestTransactionSRemRollback checks that SRem is rolled back properly.
+func TestTransactionSRemRollback(t *testing.T) {
+	db := setupTestDB()
+	ctx := context.Background()
+
+	if err := db.SAdd(ctx, "numbers", 10, 20, 30); err != nil {
+		t.Fatalf("SAdd setup failed: %v", err)
+	}
+
+	tx := db.Transaction()
+	if err := tx.SRem(ctx, "numbers", 10); err != nil {
+		t.Fatalf("SRem in transaction failed: %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+
+	members, err := db.SMembers(ctx, "numbers")
+	if err != nil {
+		t.Fatalf("SMembers failed: %v", err)
+	}
+	found := false
+	for _, m := range members {
+		if m == 10 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Expected member 10 to be present after rollback, got %v", members)
+	}
+}
+
+// TestTransactionSMembersCommit checks that SMembers sees newly added members after commit.
+func TestTransactionSMembersCommit(t *testing.T) {
+	db := setupTestDB()
+	ctx := context.Background()
+
+	tx := db.Transaction()
+	if err := tx.SAdd(ctx, "foods", "apple", "banana"); err != nil {
+		t.Fatalf("SAdd in transaction failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	members, err := db.SMembers(ctx, "foods")
+	if err != nil {
+		t.Fatalf("SMembers error: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("Expected 2 members, got %d", len(members))
+	}
+}
+
+// TestTransactionSIsMemberCommit checks that SIsMember reflects committed changes.
+func TestTransactionSIsMemberCommit(t *testing.T) {
+	db := setupTestDB()
+	ctx := context.Background()
+
+	tx := db.Transaction()
+	if err := tx.SAdd(ctx, "planets", "Earth", "Mars"); err != nil {
+		t.Fatalf("SAdd in transaction failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	isMem, err := db.SIsMember(ctx, "planets", "Earth")
+	if err != nil {
+		t.Fatalf("SIsMember error: %v", err)
+	}
+	if !isMem {
+		t.Fatalf("Expected Earth to be a member of the set")
+	}
+}
+
+// TestTransactionSCardCommit checks that SCard returns the correct count after commit.
+func TestTransactionSCardCommit(t *testing.T) {
+	db := setupTestDB()
+	ctx := context.Background()
+
+	// Setup
+	if err := db.SAdd(ctx, "letters", "a", "b"); err != nil {
+		t.Fatalf("SAdd setup failed: %v", err)
+	}
+
+	tx := db.Transaction()
+	if err := tx.SAdd(ctx, "letters", "c"); err != nil {
+		t.Fatalf("SAdd in transaction failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	card, err := db.SCard(ctx, "letters")
+	if err != nil {
+		t.Fatalf("SCard error: %v", err)
+	}
+	if card != 3 {
+		t.Fatalf("Expected cardinality=3, got=%d", card)
+	}
+}
+
+// TestTransactionLTrimCommit checks that LTrim changes are committed properly.
+func TestTransactionLTrimCommit(t *testing.T) {
+	db := setupTestDB()
+	ctx := context.Background()
+
+	if err := db.RPush(ctx, "numbersList", 1, 2, 3, 4, 5); err != nil {
+		t.Fatalf("RPush setup failed: %v", err)
+	}
+
+	tx := db.Transaction()
+	if err := tx.LTrim(ctx, "numbersList", 1, 2); err != nil {
+		t.Fatalf("LTrim in transaction failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	result, err := db.LRange(ctx, "numbersList", 0, -1)
+	if err != nil {
+		t.Fatalf("LRange after commit failed: %v", err)
+	}
+	if len(result) != 2 || result[0] != 2 || result[1] != 3 {
+		t.Fatalf("Expected [2 3], got %v", result)
+	}
+}
+
+// TestTransactionLTrimRollback checks that LTrim changes are rolled back if the transaction is rolled back.
+func TestTransactionLTrimRollback(t *testing.T) {
+	db := setupTestDB()
+	ctx := context.Background()
+
+	if err := db.RPush(ctx, "numbersList", 10, 20, 30, 40); err != nil {
+		t.Fatalf("RPush setup failed: %v", err)
+	}
+
+	tx := db.Transaction()
+	if err := tx.LTrim(ctx, "numbersList", 1, 2); err != nil {
+		t.Fatalf("LTrim in transaction failed: %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+
+	result, err := db.LRange(ctx, "numbersList", 0, -1)
+	if err != nil {
+		t.Fatalf("LRange failed: %v", err)
+	}
+	if len(result) != 4 || result[0] != 10 || result[1] != 20 || result[2] != 30 || result[3] != 40 {
+		t.Fatalf("Expected [10 20 30 40], got %v", result)
 	}
 }
