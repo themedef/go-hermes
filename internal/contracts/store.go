@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"github.com/themedef/go-hermes/internal/types"
 )
 
 type StoreHandler interface {
@@ -21,12 +22,21 @@ type StoreHandler interface {
 	RPop(ctx context.Context, key string) (interface{}, error)
 	LLen(ctx context.Context, key string) (int, error)
 	LRange(ctx context.Context, key string, start, end int) ([]interface{}, error)
+	LTrim(ctx context.Context, key string, start, stop int) error
+
 	HSet(ctx context.Context, key string, field string, value interface{}, ttl int) error
 	HGet(ctx context.Context, key string, field string) (interface{}, error)
 	HDel(ctx context.Context, key string, field string) error
 	HGetAll(ctx context.Context, key string) (map[string]interface{}, error)
 	HExists(ctx context.Context, key string, field string) (bool, error)
 	HLen(ctx context.Context, key string) (int, error)
+
+	SAdd(ctx context.Context, key string, members ...interface{}) error
+	SRem(ctx context.Context, key string, members ...interface{}) error
+	SMembers(ctx context.Context, key string) ([]interface{}, error)
+	SIsMember(ctx context.Context, key string, member interface{}) (bool, error)
+	SCard(ctx context.Context, key string) (int, error)
+
 	Exists(ctx context.Context, key string) (bool, error)
 	Expire(ctx context.Context, key string, ttl int) (bool, error)
 	Persist(ctx context.Context, key string) (bool, error)
@@ -36,6 +46,9 @@ type StoreHandler interface {
 	FindByValue(ctx context.Context, value interface{}) ([]string, error)
 	Delete(ctx context.Context, key string) error
 	DropAll(ctx context.Context) error
+	GetRawEntry(ctx context.Context, key string) (types.Entry, error)
+	RestoreRawEntry(ctx context.Context, key string, e types.Entry) error
+
 	Subscribe(key string) chan string
 	Unsubscribe(key string, ch chan string)
 	ListSubscriptions() []string

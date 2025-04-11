@@ -111,18 +111,30 @@ func (l *Logger) log(level LogLevel, msg string) {
 }
 
 func (l *Logger) Debug(args ...interface{}) {
+	if !l.config.Enabled {
+		return
+	}
 	l.log(DEBUG, strings.TrimSpace(fmt.Sprintln(args...)))
 }
 
 func (l *Logger) Info(args ...interface{}) {
+	if !l.config.Enabled {
+		return
+	}
 	l.log(INFO, strings.TrimSpace(fmt.Sprintln(args...)))
 }
 
 func (l *Logger) Warn(args ...interface{}) {
+	if !l.config.Enabled {
+		return
+	}
 	l.log(WARN, strings.TrimSpace(fmt.Sprintln(args...)))
 }
 
 func (l *Logger) Error(args ...interface{}) {
+	if !l.config.Enabled {
+		return
+	}
 	l.log(ERROR, strings.TrimSpace(fmt.Sprintln(args...)))
 }
 

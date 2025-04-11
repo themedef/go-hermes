@@ -70,12 +70,18 @@ func (h *APIHandler) RunServer(port, prefix string, middlewares ...func(http.Han
 		prefix + "/rpop":          h.RPopHandler,
 		prefix + "/llen":          h.LLenHandler,
 		prefix + "/lrange":        h.LRangeHandler,
+		prefix + "/ltrim":         h.LTrimHandler,
 		prefix + "/hset":          h.HSetHandler,
 		prefix + "/hget":          h.HGetHandler,
 		prefix + "/hdel":          h.HDelHandler,
 		prefix + "/hgetall":       h.HGetAllHandler,
 		prefix + "/hexists":       h.HExistsHandler,
 		prefix + "/hlen":          h.HLenHandler,
+		prefix + "/sadd":          h.SAddHandler,
+		prefix + "/srem":          h.SRemHandler,
+		prefix + "/smembers":      h.SMembersHandler,
+		prefix + "/sismember":     h.SIsMemberHandler,
+		prefix + "/scard":         h.SCardHandler,
 		prefix + "/exists":        h.ExistsHandler,
 		prefix + "/expire":        h.ExpireHandler,
 		prefix + "/persist":       h.PersistHandler,
@@ -493,6 +499,35 @@ func (h *APIHandler) LRangeHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *APIHandler) LTrimHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	var req struct {
+		Key   string `json:"key"`
+		Start int    `json:"start"`
+		End   int    `json:"end"`
+	}
+	if err := decodeRequest(r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.db.LTrim(h.ctx, req.Key, req.Start, req.End); err != nil {
+		if IsKeyNotFound(err) {
+			http.Error(w, "Key not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	helperEncodeJSON(w, map[string]interface{}{
+		"message": "LTRIM success",
+		"key":     req.Key,
+		"start":   req.Start,
+		"end":     req.End,
+	})
+}
+
 func (h *APIHandler) HSetHandler(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
@@ -626,6 +661,136 @@ func (h *APIHandler) HLenHandler(w http.ResponseWriter, r *http.Request) {
 	helperEncodeJSON(w, map[string]interface{}{
 		"key":    key,
 		"length": length,
+	})
+}
+
+func (h *APIHandler) SAddHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	var req struct {
+		Key     string        `json:"key"`
+		Members []interface{} `json:"members"`
+	}
+	if err := decodeRequest(r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.db.SAdd(h.ctx, req.Key, req.Members...); err != nil {
+		if IsKeyNotFound(err) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		} else if IsInvalidType(err) {
+			http.Error(w, err.Error(), http.StatusConflict)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	helperEncodeJSON(w, map[string]interface{}{
+		"message": "SADD success",
+		"key":     req.Key,
+		"count":   len(req.Members),
+	})
+}
+
+func (h *APIHandler) SRemHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodPost) {
+		return
+	}
+	var req struct {
+		Key     string        `json:"key"`
+		Members []interface{} `json:"members"`
+	}
+	if err := decodeRequest(r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.db.SRem(h.ctx, req.Key, req.Members...); err != nil {
+		if IsKeyNotFound(err) {
+			http.Error(w, "Key not found or already empty", http.StatusNotFound)
+		} else if IsInvalidType(err) {
+			http.Error(w, err.Error(), http.StatusConflict)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	helperEncodeJSON(w, map[string]interface{}{
+		"message": "SREM success",
+		"key":     req.Key,
+		"count":   len(req.Members),
+	})
+}
+
+func (h *APIHandler) SMembersHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	key := r.URL.Query().Get("key")
+	members, err := h.db.SMembers(h.ctx, key)
+	if err != nil {
+		if IsKeyNotFound(err) {
+			http.Error(w, "Key not found or expired", http.StatusNotFound)
+		} else if IsInvalidType(err) {
+			http.Error(w, err.Error(), http.StatusConflict)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	helperEncodeJSON(w, map[string]interface{}{
+		"key":     key,
+		"members": members,
+	})
+}
+
+func (h *APIHandler) SIsMemberHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	key := r.URL.Query().Get("key")
+	member := r.URL.Query().Get("member")
+	if key == "" || member == "" {
+		http.Error(w, "Missing key or member parameter", http.StatusBadRequest)
+		return
+	}
+	isMember, err := h.db.SIsMember(h.ctx, key, member)
+	if err != nil {
+		if IsKeyNotFound(err) {
+			http.Error(w, "Key not found or expired", http.StatusNotFound)
+		} else if IsInvalidType(err) {
+			http.Error(w, err.Error(), http.StatusConflict)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	helperEncodeJSON(w, map[string]interface{}{
+		"key":       key,
+		"member":    member,
+		"is_member": isMember,
+	})
+}
+
+func (h *APIHandler) SCardHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireMethod(w, r, http.MethodGet) {
+		return
+	}
+	key := r.URL.Query().Get("key")
+	count, err := h.db.SCard(h.ctx, key)
+	if err != nil {
+		if IsKeyNotFound(err) {
+			http.Error(w, "Key not found or expired", http.StatusNotFound)
+		} else if IsInvalidType(err) {
+			http.Error(w, err.Error(), http.StatusConflict)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	helperEncodeJSON(w, map[string]interface{}{
+		"key":   key,
+		"count": count,
 	})
 }
 

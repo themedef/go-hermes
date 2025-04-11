@@ -6,59 +6,66 @@
 
 1. [Overview](#overview)
 2. [Transaction Lifecycle](#transaction-lifecycle)
-   - [Begin Transaction](#begin-transaction)
-   - [Commit](#commit)
-   - [Rollback](#rollback)
+    - [Begin Transaction](#begin-transaction)
+    - [Commit](#commit)
+    - [Rollback](#rollback)
 3. [Operations](#operations)
-   - [Key-Value Operations](#key-value-operations)
-      - [Set](#set)
-      - [Get](#get)
-      - [SetNX](#setnx)
-      - [SetXX](#setxx)
-      - [SetCAS](#setcas)
-      - [GetSet](#getset)
-   - [Atomic Counters](#atomic-counters)
-      - [Incr](#increment)
-      - [Decr](#decrement)
-      - [IncrBy](#incrby)
-      - [DecrBy](#decrby)
-   - [List Operations](#list-operations)
-      - [LPush](#lpush)
-      - [RPush](#rpush)
-      - [LPop](#lpop)
-      - [RPop](#rpop)
-      - [LRange](#lrange)
-      - [LLen](#llen)
-   - [Hash Operations](#hash-operations)
-      - [HSet](#hset)
-      - [HGet](#hget)
-      - [HDel](#hdel)
-      - [HGetAll](#hgetall)
-      - [HExists](#hexists)
-      - [HLen](#hlen)
-   - [Utility Methods](#utility-methods)
-      - [Exists](#exists)
-      - [Expire](#expire)
-      - [Persist](#persist)
-      - [Type](#type)
-      - [GetWithDetails](#getwithdetails)
-      - [Rename](#rename)
-      - [FindByValue](#findbyvalue)
-      - [Delete](#delete)
-3. [Error Reference](#error-reference)
-4. [Best Practices](#best-practices)
+    - [Key-Value Operations](#key-value-operations)
+        - [Set](#set)
+        - [Get](#get)
+        - [SetNX](#setnx)
+        - [SetXX](#setxx)
+        - [SetCAS](#setcas)
+        - [GetSet](#getset)
+    - [Atomic Counters](#atomic-counters)
+        - [Incr](#increment)
+        - [Decr](#decrement)
+        - [IncrBy](#incrby)
+        - [DecrBy](#decrby)
+    - [List Operations](#list-operations)
+        - [LPush](#lpush)
+        - [RPush](#rpush)
+        - [LPop](#lpop)
+        - [RPop](#rpop)
+        - [LRange](#lrange)
+        - [LLen](#llen)
+        - [LTrim](#ltrim)
+    - [Hash Operations](#hash-operations)
+        - [HSet](#hset)
+        - [HGet](#hget)
+        - [HDel](#hdel)
+        - [HGetAll](#hgetall)
+        - [HExists](#hexists)
+        - [HLen](#hlen)
+    - [Set Operations](#set-operations)
+        - [SAdd](#sadd)
+        - [SRem](#srem)
+        - [SMembers](#smembers)
+        - [SIsMember](#sismember)
+        - [SCard](#scard)
+    - [Utility Methods](#utility-methods)
+        - [Exists](#exists)
+        - [Expire](#expire)
+        - [Persist](#persist)
+        - [Type](#type)
+        - [GetWithDetails](#getwithdetails)
+        - [Rename](#rename)
+        - [FindByValue](#findbyvalue)
+        - [Delete](#delete)
+4. [Error Reference](#error-reference)
+5. [Best Practices](#best-practices)
 
 ---
 
 ## 1. Overview <a id="overview"></a>
 
-A **transaction** groups multiple operations (reads/writes) to execute atomically. Changes are buffered locally until the transaction is committed. If any operation fails during commit, all changes are rolled back automatically.
+A **transaction** in the Hermes store aggregates multiple read/write operations so they execute atomically. Within a transaction, changes are buffered locally and remain invisible to the outside world until the transaction is committed. If any operation fails during commit, a rollback mechanism automatically restores the previous state.
 
-Key Features:
-- **Optimistic Concurrency**: Changes remain invisible until commit.
-- **Atomic Guarantee**: All operations succeed or none do.
-- **Rollback Support**: Automatically restores previous state on failure.
-- **Support for Complex Data Structures**: Transactions handle key-value, counters, lists, and hashes.
+**Key Features:**
+- **Optimistic Concurrency:** Operations are queued and only become visible upon commit.
+- **Atomic Guarantee:** Either all operations succeed or none of them take effect.
+- **Rollback Support:** Each operation registers a rollback function to undo the change if needed.
+- **Support for Complex Data Structures:** Transactions cover key-value pairs, counters, lists, hashes, and sets.
 
 ---
 
@@ -68,7 +75,8 @@ Key Features:
 ```go
 tx := db.Transaction()
 ```
-Initializes a new transaction context. Must be invoked before any transactional operations.
+**Description:**  
+Initializes a new transaction context. This must be invoked before executing any transactional operations.
 
 ---
 
@@ -76,9 +84,15 @@ Initializes a new transaction context. Must be invoked before any transactional 
 ```go
 err := tx.Commit()
 ```
-Executes all queued operations atomically.
-- Returns an error (e.g., `ErrTransactionFailed`) if any operation fails.
-- Automatically rolls back changes on failure.
+**Description:**  
+Executes all queued transaction operations atomically. If any command fails during commit, the transaction automatically calls all rollback functions, reverting all changes.
+
+**On Success:**
+- All operations are applied.
+- The transaction buffers are cleared.
+
+**On Failure:**
+- Returns an error (for example, `ErrTransactionFailed`) and reverts all changes.
 
 ---
 
@@ -86,8 +100,8 @@ Executes all queued operations atomically.
 ```go
 err := tx.Rollback()
 ```
-Discards all pending operations.
-- No-op if there is no active transaction.
+**Description:**  
+Discards all queued operations and invokes rollback callbacks to restore the previous state. If no transaction is active, this is a no-op.
 
 ---
 
@@ -99,8 +113,9 @@ Discards all pending operations.
 ```go
 err := tx.Set(ctx, "key", value, ttl)
 ```
-Creates or updates a key with the specified TTL.  
-**Rollback**: Restores the previous value or deletes the key if it was newly created.
+**Description:**  
+Creates or updates a key with the specified value and TTL.  
+**Rollback:** If the key previously existed, its former value is restored; otherwise, the key is deleted.
 
 ---
 
@@ -108,8 +123,10 @@ Creates or updates a key with the specified TTL.
 ```go
 val, err := tx.Get(ctx, "key")
 ```
-Retrieves the current value of the key, including any changes queued in the transaction.  
-**Errors**: `ErrKeyNotFound`, `ErrKeyExpired`.
+**Description:**  
+Retrieves the current value of a key, including any buffered changes in the transaction.  
+**Errors:**
+- `ErrKeyNotFound` if the key does not exist or has expired.
 
 ---
 
@@ -117,8 +134,9 @@ Retrieves the current value of the key, including any changes queued in the tran
 ```go
 err := tx.SetNX(ctx, "key", value, ttl)
 ```
-Sets the key only if it does not exist.  
-**Rollback**: Deletes the key if it was created by this operation.
+**Description:**  
+Sets the key only if it does not already exist.  
+**Rollback:** Deletes the key if it was newly created by this operation.
 
 ---
 
@@ -126,8 +144,9 @@ Sets the key only if it does not exist.
 ```go
 err := tx.SetXX(ctx, "key", value, ttl)
 ```
+**Description:**  
 Updates the key only if it already exists.  
-**Rollback**: Restores the original value.
+**Rollback:** Restores the previous value if the operation is later rolled back.
 
 ---
 
@@ -135,8 +154,12 @@ Updates the key only if it already exists.
 ```go
 err := tx.SetCAS(ctx, "key", oldVal, newVal, ttl)
 ```
-Performs a compare-and-swap operation. Updates the key only if its current value matches `oldVal`.  
-**Errors**: `ErrValueMismatch`, `ErrKeyNotFound`.
+**Description:**  
+Performs a compare-and-swap update – sets the key to a new value only if the current value equals `oldVal`.  
+**Errors:**
+- `ErrValueMismatch` if the current value does not equal `oldVal`.
+- `ErrKeyNotFound` if the key does not exist.  
+  **Rollback:** Restores the previous state on failure.
 
 ---
 
@@ -144,8 +167,9 @@ Performs a compare-and-swap operation. Updates the key only if its current value
 ```go
 oldVal, err := tx.GetSet(ctx, "key", newVal, ttl)
 ```
-Atomically sets a new value and returns the old value.  
-**Rollback**: Restores the previous value.
+**Description:**  
+Atomically sets a new value for a key and returns the old value.  
+**Rollback:** Restores the previous value if necessary.
 
 ---
 
@@ -155,8 +179,9 @@ Atomically sets a new value and returns the old value.
 ```go
 err := tx.Incr(ctx, "counter")
 ```
-Increments an integer value by 1. If the key is missing, initializes it to 1.  
-**Rollback**: Restores the previous value.
+**Description:**  
+Increments an integer value by 1. If the key does not exist, it is initialized to `1`.  
+**Rollback:** Restores the original counter value.
 
 ---
 
@@ -164,8 +189,9 @@ Increments an integer value by 1. If the key is missing, initializes it to 1.
 ```go
 err := tx.Decr(ctx, "counter")
 ```
-Decrements an integer value by 1. If the key is missing, initializes it to -1.  
-**Rollback**: Restores the previous value.
+**Description:**  
+Decrements an integer value by 1. If the key does not exist, it is initialized to `-1`.  
+**Rollback:** Restores the previous value.
 
 ---
 
@@ -173,9 +199,9 @@ Decrements an integer value by 1. If the key is missing, initializes it to -1.
 ```go
 err := tx.IncrBy(ctx, "counter", 10)
 ```
-Increments an integer value by a specified amount.  
-If the key does not exist, it is created with the given increment value.  
-**Rollback**: Restores the previous value.
+**Description:**  
+Increments an integer counter by a specified amount. If the key is missing, it is created with the provided increment value.  
+**Rollback:** Restores the previous counter value.
 
 ---
 
@@ -183,9 +209,9 @@ If the key does not exist, it is created with the given increment value.
 ```go
 err := tx.DecrBy(ctx, "counter", 5)
 ```
-Decrements an integer value by a specified amount.  
-If the key does not exist, it is created with the negative of the decrement value.  
-**Rollback**: Restores the previous value.
+**Description:**  
+Decrements an integer counter by a specified amount. If the key is missing, it is created with the negative of the specified value.  
+**Rollback:** Restores the previous counter value.
 
 ---
 
@@ -193,19 +219,21 @@ If the key does not exist, it is created with the negative of the decrement valu
 
 #### LPush <a id="lpush"></a>
 ```go
-err := tx.LPush(ctx, "list", value)
+err := tx.LPush(ctx, "list", value1, value2)
 ```
-Inserts a value at the head (left) of the list.  
-**Rollback**: Restores the original list state.
+**Description:**  
+Inserts one or more elements at the beginning (left side) of the list.  
+**Rollback:** Restores the original list state.
 
 ---
 
 #### RPush <a id="rpush"></a>
 ```go
-err := tx.RPush(ctx, "list", value)
+err := tx.RPush(ctx, "list", value1, value2)
 ```
-Appends a value at the tail (right) of the list.  
-**Rollback**: Restores the original list state.
+**Description:**  
+Appends one or more elements at the end (right side) of the list.  
+**Rollback:** Restores the original list state.
 
 ---
 
@@ -213,8 +241,9 @@ Appends a value at the tail (right) of the list.
 ```go
 val, err := tx.LPop(ctx, "list")
 ```
+**Description:**  
 Removes and returns the first element of the list.  
-**Rollback**: Reinserts the popped element.
+**Rollback:** Reinserts the popped element into the list.
 
 ---
 
@@ -222,8 +251,9 @@ Removes and returns the first element of the list.
 ```go
 val, err := tx.RPop(ctx, "list")
 ```
+**Description:**  
 Removes and returns the last element of the list.  
-**Rollback**: Reinserts the popped element.
+**Rollback:** Reinserts the popped element into the list.
 
 ---
 
@@ -231,8 +261,8 @@ Removes and returns the last element of the list.
 ```go
 items, err := tx.LRange(ctx, "list", start, end)
 ```
-Returns a slice of list elements between specified indices.  
-Supports negative indices for counting from the end.
+**Description:**  
+Retrieves a slice of elements from the list between the given start and end indices. Supports negative indices.
 
 ---
 
@@ -240,7 +270,18 @@ Supports negative indices for counting from the end.
 ```go
 length, err := tx.LLen(ctx, "list")
 ```
-Returns the length of the list.
+**Description:**  
+Returns the number of elements in the list.
+
+---
+
+#### LTrim <a id="ltrim"></a>
+```go
+err := tx.LTrim(ctx, "list", start, stop)
+```
+**Description:**  
+Trims the list to contain only the elements within the specified range. If the resulting list is empty, the key is removed.  
+**Rollback:** Restores the original list.
 
 ---
 
@@ -250,8 +291,9 @@ Returns the length of the list.
 ```go
 err := tx.HSet(ctx, "hash", "field", value, ttl)
 ```
-Sets a field in a hash to the specified value.  
-**Rollback**: Restores the previous field value or removes the field if newly added.
+**Description:**  
+Sets a field in the hash to the specified value.  
+**Rollback:** If the field existed before, its value is restored; otherwise, it is removed.
 
 ---
 
@@ -259,8 +301,10 @@ Sets a field in a hash to the specified value.
 ```go
 val, err := tx.HGet(ctx, "hash", "field")
 ```
-Retrieves the value of a hash field.  
-**Errors**: `ErrKeyNotFound`.
+**Description:**  
+Retrieves the value associated with a specific field in the hash.  
+**Errors:**
+- `ErrKeyNotFound` if the hash or field is absent.
 
 ---
 
@@ -268,8 +312,9 @@ Retrieves the value of a hash field.
 ```go
 err := tx.HDel(ctx, "hash", "field")
 ```
-Deletes a field from a hash.  
-**Rollback**: Restores the deleted field.
+**Description:**  
+Deletes a field from the hash.  
+**Rollback:** Restores the deleted field with its previous value if necessary.
 
 ---
 
@@ -277,8 +322,10 @@ Deletes a field from a hash.
 ```go
 fields, err := tx.HGetAll(ctx, "hash")
 ```
-Returns all fields and values in the hash.  
-**Errors**: `ErrKeyNotFound`.
+**Description:**  
+Returns all fields and their corresponding values from the hash.  
+**Errors:**
+- `ErrKeyNotFound` if the hash does not exist.
 
 ---
 
@@ -286,7 +333,8 @@ Returns all fields and values in the hash.
 ```go
 exists, err := tx.HExists(ctx, "hash", "field")
 ```
-Checks whether a specific field exists in the hash.
+**Description:**  
+Checks for the existence of the specified field in the hash.
 
 ---
 
@@ -294,8 +342,63 @@ Checks whether a specific field exists in the hash.
 ```go
 count, err := tx.HLen(ctx, "hash")
 ```
+**Description:**  
 Returns the number of fields in the hash.  
-**Errors**: `ErrKeyNotFound`.
+**Errors:**
+- `ErrKeyNotFound` if the hash is missing.
+
+---
+
+### Set Operations <a id="set-operations"></a>
+
+#### SAdd <a id="sadd"></a>
+```go
+err := tx.SAdd(ctx, "setKey", member1, member2)
+```
+**Description:**  
+Adds one or more members to a set. If the set does not exist, it is created.  
+**Rollback:** Restores the previous set state (or deletes the key if it was newly created).
+
+---
+
+#### SRem <a id="srem"></a>
+```go
+err := tx.SRem(ctx, "setKey", member1)
+```
+**Description:**  
+Removes the specified members from the set. If the set becomes empty, the key is deleted.  
+**Rollback:** Restores the original set contents.
+
+---
+
+#### SMembers <a id="smembers"></a>
+```go
+members, err := tx.SMembers(ctx, "setKey")
+```
+**Description:**  
+Retrieves all members of the set.  
+**Errors:**
+- `ErrKeyNotFound` if the set does not exist.
+
+---
+
+#### SIsMember <a id="sismember"></a>
+```go
+exists, err := tx.SIsMember(ctx, "setKey", member)
+```
+**Description:**  
+Checks whether the provided member exists within the set.
+
+---
+
+#### SCard <a id="scard"></a>
+```go
+cardinality, err := tx.SCard(ctx, "setKey")
+```
+**Description:**  
+Returns the number of members in the set.  
+**Errors:**
+- `ErrKeyNotFound` if the set is missing.
 
 ---
 
@@ -305,7 +408,8 @@ Returns the number of fields in the hash.
 ```go
 exists, err := tx.Exists(ctx, "key")
 ```
-Checks whether a key exists within the transaction context.
+**Description:**  
+Checks whether the specified key exists within the current transaction.
 
 ---
 
@@ -313,8 +417,9 @@ Checks whether a key exists within the transaction context.
 ```go
 err := tx.Expire(ctx, "key", ttl)
 ```
-Sets a new TTL for an existing key within the transaction.  
-**Rollback**: Restores the original expiration state.
+**Description:**  
+Sets a new time-to-live (TTL) for an existing key.  
+**Rollback:** Restores the original TTL setting.
 
 ---
 
@@ -322,8 +427,9 @@ Sets a new TTL for an existing key within the transaction.
 ```go
 err := tx.Persist(ctx, "key")
 ```
-Removes the TTL from a key, making it persistent within the transaction.  
-**Rollback**: Restores the previous TTL.
+**Description:**  
+Removes the TTL from a key, making it persistent.  
+**Rollback:** Restores the previous TTL if needed.
 
 ---
 
@@ -331,8 +437,10 @@ Removes the TTL from a key, making it persistent within the transaction.
 ```go
 dataType, err := tx.Type(ctx, "key")
 ```
-Returns the data type of the key (e.g., String, List, Hash).  
-**Errors**: `ErrKeyNotFound`.
+**Description:**  
+Returns the data type of the specified key (such as String, List, Hash, or Set).  
+**Errors:**
+- `ErrKeyNotFound` if the key does not exist.
 
 ---
 
@@ -340,8 +448,8 @@ Returns the data type of the key (e.g., String, List, Hash).
 ```go
 value, ttl, err := tx.GetWithDetails(ctx, "key")
 ```
-Returns the key’s value along with its remaining TTL (in seconds).  
-TTL is `-1` if the key is persistent.
+**Description:**  
+Retrieves the key’s value along with its remaining TTL in seconds. If the key is persistent, TTL is `-1`.
 
 ---
 
@@ -349,8 +457,9 @@ TTL is `-1` if the key is persistent.
 ```go
 err := tx.Rename(ctx, "oldKey", "newKey")
 ```
+**Description:**  
 Atomically renames a key.  
-**Rollback**: Restores the original key names.
+**Rollback:** Restores the original key(s) if the rename operation is undone.
 
 ---
 
@@ -358,8 +467,9 @@ Atomically renames a key.
 ```go
 keys, err := tx.FindByValue(ctx, targetValue)
 ```
-Returns all keys whose values match the specified target value.  
-**Warning**: This operation can be expensive.
+**Description:**  
+Finds and returns all keys whose values match the specified target value.  
+**Note:** This operation can be expensive on large datasets.
 
 ---
 
@@ -367,62 +477,75 @@ Returns all keys whose values match the specified target value.
 ```go
 err := tx.Delete(ctx, "key")
 ```
-Deletes a key permanently.  
-**Rollback**: Restores the key and its previous value.
+**Description:**  
+Deletes the specified key permanently.  
+**Rollback:** Restores the key along with its previous value if required.
 
 ---
 
 ## 4. Error Reference <a id="error-reference"></a>
 
-| Error Code              | Description                                    |
-|-------------------------|------------------------------------------------|
-| `ErrTransactionNotActive` | Operation attempted without an active transaction. |
-| `ErrTransactionFailed`    | Commit failed due to an internal error.      |
-| `ErrKeyNotFound`           | The specified key does not exist.            |
-| `ErrKeyExpired`            | The specified key has expired.               |
-| `ErrValueMismatch`         | CAS operation failed due to a value mismatch.|
-| `ErrInvalidType`           | Operation type mismatch with key's data type.|
-| `ErrInvalidTTL`            | Provided TTL is negative.                    |
+| Error Code               | Description                                                              |
+|--------------------------|--------------------------------------------------------------------------|
+| **ErrTransactionNotActive** | Operation attempted without an active transaction.                     |
+| **ErrTransactionFailed**    | Commit failed due to an error in one or more operations.                 |
+| **ErrKeyNotFound**          | The specified key does not exist or has expired.                         |
+| **ErrKeyExpired**           | The specified key exists but its TTL has expired.                        |
+| **ErrValueMismatch**        | The compare-and-swap (CAS) operation failed because the current value did not match the expected value. |
+| **ErrInvalidType**          | The operation was executed on a key whose data type does not match the expected type.  |
+| **ErrInvalidTTL**           | The provided TTL is negative or otherwise invalid.                     |
 
 ---
 
 ## 5. Best Practices <a id="best-practices"></a>
 
-1. **Transaction Scope**
-   - Begin a transaction and ensure rollback is called if commit is not reached:
-     ```go
-     tx := db.Transaction()
-     defer tx.Rollback() // Safe to call; no effect if commit succeeds
-     
-     // Perform operations...
-     if err := tx.Commit(); err != nil {
-         // Handle commit error
-     }
-     ```
-2. **Atomic Patterns**
-   - Use CAS operations to update critical data safely:
-     ```go
-     err := tx.SetCAS(ctx, "inventory", currentStock, currentStock-1, 0)
-     if err != nil {
-         // Handle CAS failure
-     }
-     ```
-3. **Batching Operations**
-   - Group related operations in a transaction to minimize intermediate state:
-     ```go
-     tx.Set(ctx, "key1", val1, 0)
-     tx.HSet(ctx, "hash1", "field", val2, 0)
-     tx.Incr(ctx, "counter")
-     ```
+1. **Transaction Scope and Cleanup**
+    - Begin a transaction and ensure you call rollback if commit is not reached:
+      ```go
+      tx := db.Transaction()
+      defer tx.Rollback() // Safe to call; has no effect if commit succeeds
+      
+      // Execute multiple operations within the transaction...
+      if err := tx.Commit(); err != nil {
+          // Handle commit error accordingly
+      }
+      ```
+
+2. **Atomic Patterns for Critical Data**
+    - Utilize CAS operations to safely update critical values:
+      ```go
+      err := tx.SetCAS(ctx, "inventory", currentStock, currentStock-1, 0)
+      if err != nil {
+          // Handle CAS failure (e.g., inventory conflict)
+      }
+      ```
+
+3. **Batch Related Operations**
+    - Group multiple operations within a single transaction to maintain consistency:
+      ```go
+      tx.Set(ctx, "user:balance", 150, 0)
+      tx.HSet(ctx, "user:profile", "email", "user@example.com", 0)
+      tx.Incr(ctx, "user:loginCount")
+      ```
+
 4. **Rollback Awareness**
-   - Understand the rollback behavior for each operation; for example, updates, deletions, and counter modifications are fully reversible within a transaction.
-5. **Performance Monitoring**
-   - Track transaction commit and rollback rates as well as latency to fine-tune your usage.
-6. **Error Handling**
-   - Always inspect errors (using `errors.Is()` where applicable) to distinguish between expected and unexpected failures.
-   - Example:
-     ```go
-     if errors.Is(err, ErrValueMismatch) {
-         // Specific handling for CAS failure
-     }
-     ```
+    - Understand each operation's rollback behavior. Updates, deletions, and counter modifications are fully reversible within a transaction.
+
+5. **Error Handling**
+    - Always check and distinguish errors using patterns like `errors.Is()`:
+      ```go
+      if err := tx.Commit(); err != nil {
+          if errors.Is(err, ErrValueMismatch) {
+              // Handle specific CAS failure
+          } else {
+              // General error handling
+          }
+      }
+      ```
+
+6. **Monitor Transaction Performance**
+    - Track commit/rollback latency and failure rates to fine-tune TTL settings, shard counts, and overall system performance.
+
+---
+
+This documentation provides a comprehensive guide to using transactions in the Hermes store, including all methods (key-value, atomic counters, lists, hashes, sets, and utility functions) with full descriptions, rollback behavior, error details, and recommended practices. If you have any questions or need further clarification, please feel free to ask!

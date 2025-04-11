@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/themedef/go-hermes/internal/contracts"
+	"github.com/themedef/go-hermes/internal/types"
 	"strconv"
 	"strings"
 )
@@ -451,17 +452,17 @@ func (c *CommandAPI) Execute(ctx context.Context, parts []string) (string, error
 			}
 			return "", err
 		}
-		dt, ok := dtype.(DataType)
+		dt, ok := dtype.(types.DataType)
 		if !ok {
 			return "", fmt.Errorf("unexpected type returned")
 		}
 		var typeStr string
 		switch dt {
-		case String:
+		case types.String:
 			typeStr = "string"
-		case List:
+		case types.List:
 			typeStr = "list"
-		case Hash:
+		case types.Hash:
 			typeStr = "hash"
 		default:
 			typeStr = "unknown"

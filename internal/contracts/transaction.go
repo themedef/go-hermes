@@ -21,12 +21,20 @@ type TransactionHandler interface {
 	RPop(ctx context.Context, key string) (interface{}, error)
 	LLen(ctx context.Context, key string) (int, error)
 	LRange(ctx context.Context, key string, start, end int) ([]interface{}, error)
+	LTrim(ctx context.Context, key string, start, stop int) error
+
 	HSet(ctx context.Context, key, field string, value interface{}, ttl int) error
 	HGet(ctx context.Context, key, field string) (interface{}, error)
 	HDel(ctx context.Context, key, field string) error
 	HGetAll(ctx context.Context, key string) (map[string]interface{}, error)
 	HExists(ctx context.Context, key, field string) (bool, error)
 	HLen(ctx context.Context, key string) (int, error)
+
+	SAdd(ctx context.Context, key string, members ...interface{}) error
+	SRem(ctx context.Context, key string, members ...interface{}) error
+	SMembers(ctx context.Context, key string) ([]interface{}, error)
+	SIsMember(ctx context.Context, key string, member interface{}) (bool, error)
+	SCard(ctx context.Context, key string) (int, error)
 	Exists(ctx context.Context, key string) (bool, error)
 	Expire(ctx context.Context, key string, ttl int) error
 	Persist(ctx context.Context, key string) error

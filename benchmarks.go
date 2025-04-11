@@ -15,27 +15,16 @@ func BenchmarkParallelGet() {
 
 	db := NewStore(Config{ShardCount: maxConcurrent})
 	ctx := context.Background()
+	var addWG sync.WaitGroup
 
-	sem := make(chan struct{}, maxConcurrent)
-	var wg sync.WaitGroup
 	start := time.Now()
 
 	for i := 0; i < total; i++ {
-		wg.Add(1)
-		sem <- struct{}{}
-
-		go func(i int) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			key := fmt.Sprintf("key-%d", i)
-
-			_, _ = db.Get(ctx, key)
-
-		}(i)
+		key := fmt.Sprintf("key-%d", i)
+		_, _ = db.Get(ctx, key)
 	}
 
-	wg.Wait()
+	addWG.Wait()
 	elapsed := time.Since(start)
 	rps := float64(total) / elapsed.Seconds()
 	fmt.Printf("Executed %d Get operations in %.2f seconds\n", total, elapsed.Seconds())

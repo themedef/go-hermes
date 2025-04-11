@@ -3,6 +3,7 @@ package hermes
 import (
 	"context"
 	"fmt"
+	"github.com/themedef/go-hermes/internal/types"
 	"hash/fnv"
 	"log"
 	"sync"
@@ -11,14 +12,6 @@ import (
 	"github.com/themedef/go-hermes/internal/contracts"
 	"github.com/themedef/go-hermes/internal/logger"
 	"github.com/themedef/go-hermes/internal/pubsub"
-)
-
-type DataType int
-
-const (
-	String DataType = iota
-	List
-	Hash
 )
 
 type Config struct {
@@ -31,15 +24,9 @@ type Config struct {
 	PubSubBufferSize int
 }
 
-type Entry struct {
-	Value      interface{}
-	Type       DataType
-	Expiration time.Time
-}
-
 type shard struct {
 	mu   sync.RWMutex
-	data map[string]Entry
+	data map[string]types.Entry
 }
 
 type DB struct {
@@ -77,7 +64,7 @@ func NewStore(config Config) contracts.StoreHandler {
 	shards := make([]*shard, config.ShardCount)
 	for i := 0; i < config.ShardCount; i++ {
 		shards[i] = &shard{
-			data: make(map[string]Entry),
+			data: make(map[string]types.Entry),
 		}
 	}
 
@@ -107,6 +94,7 @@ func (db *DB) getShardIndex(key string) int {
 
 	return int(shardIndex)
 }
+
 func ttlSecondsToTime(ttl int) (time.Time, error) {
 	if ttl < 0 {
 		return time.Time{}, ErrInvalidTTL
@@ -117,7 +105,7 @@ func ttlSecondsToTime(ttl int) (time.Time, error) {
 	return time.Now().Add(time.Duration(ttl) * time.Second), nil
 }
 
-func isExpired(e Entry) bool {
+func isExpired(e types.Entry) bool {
 	if e.Expiration.IsZero() {
 		return false
 	}
@@ -161,10 +149,10 @@ func (db *DB) setInternal(ctx context.Context, key string, value interface{}, tt
 		return false, ErrKeyExists
 	}
 
-	newEntry := Entry{
+	newEntry := types.Entry{
 		Value:      value,
 		Expiration: expiration,
-		Type:       String,
+		Type:       types.String,
 	}
 	sh.data[key] = newEntry
 
@@ -203,21 +191,16 @@ func (db *DB) Get(ctx context.Context, key string) (interface{}, error) {
 	entry, exists := sh.data[key]
 	sh.mu.RUnlock()
 
-	if !exists {
-		db.logger.Warn("attempt to Get a non-existent key", "key", key)
-		return nil, ErrKeyNotFound
-	}
-
-	if isExpired(entry) {
-		db.logger.Info("key expired in Get", "key", key)
-
-		sh.mu.Lock()
-		if latestEntry, ok := sh.data[key]; ok && isExpired(latestEntry) {
-			delete(sh.data, key)
+	if !exists || isExpired(entry) {
+		if exists {
+			sh.mu.Lock()
+			if latestEntry, ok := sh.data[key]; ok && isExpired(latestEntry) {
+				delete(sh.data, key)
+			}
+			sh.mu.Unlock()
 		}
-		sh.mu.Unlock()
-
-		return nil, ErrKeyExpired
+		db.logger.Warn("attempt to Get a non-existent or expired key", "key", key)
+		return nil, ErrKeyNotFound
 	}
 
 	db.logger.Info("Get operation successful", "key", key)
@@ -252,7 +235,7 @@ func (db *DB) SetCAS(ctx context.Context, key string, oldValue, newValue interfa
 			db.logger.Info("auto-removed expired key in SetCAS", "key", key)
 		}
 		db.logger.Warn("key not found or expired in SetCAS", "key", key)
-		return fmt.Errorf("%w: SetCAS", ErrKeyNotFound)
+		return ErrKeyNotFound
 	}
 
 	if entry.Value != oldValue {
@@ -260,10 +243,10 @@ func (db *DB) SetCAS(ctx context.Context, key string, oldValue, newValue interfa
 			"key", key,
 			"expected", oldValue,
 			"actual", entry.Value)
-		return fmt.Errorf("%w: SetCAS", ErrValueMismatch)
+		return ErrValueMismatch
 	}
 
-	newEntry := Entry{
+	newEntry := types.Entry{
 		Value:      newValue,
 		Expiration: expiration,
 		Type:       entry.Type,
@@ -313,9 +296,9 @@ func (db *DB) GetSet(ctx context.Context, key string, newValue interface{}, ttl 
 		oldValue = nil
 	}
 
-	newEntry := Entry{
+	newEntry := types.Entry{
 		Value:      newValue,
-		Type:       String,
+		Type:       types.String,
 		Expiration: expiration,
 	}
 
@@ -340,7 +323,7 @@ func (db *DB) Incr(ctx context.Context, key string) (int64, error) {
 
 	entry, exists := sh.data[key]
 	if !exists || isExpired(entry) {
-		sh.data[key] = Entry{Value: int64(1), Type: String}
+		sh.data[key] = types.Entry{Value: int64(1), Type: types.String}
 		db.logger.Info("Incr created new key with value=1", "key", key)
 		return 1, nil
 	}
@@ -373,7 +356,7 @@ func (db *DB) Decr(ctx context.Context, key string) (int64, error) {
 
 	entry, exists := sh.data[key]
 	if !exists || isExpired(entry) {
-		sh.data[key] = Entry{Value: int64(-1), Type: String}
+		sh.data[key] = types.Entry{Value: int64(-1), Type: types.String}
 		db.logger.Info("Decr created new key with value=-1", "key", key)
 		return -1, nil
 	}
@@ -407,12 +390,12 @@ func (db *DB) IncrBy(ctx context.Context, key string, increment int64) (int64, e
 	entry, exists := sh.data[key]
 	if !exists || isExpired(entry) {
 		newVal := increment
-		sh.data[key] = Entry{Value: newVal, Type: String}
+		sh.data[key] = types.Entry{Value: newVal, Type: types.String}
 		db.logger.Info("IncrBy created key", "key", key, "value", newVal)
 		return newVal, nil
 	}
 
-	if entry.Type != String {
+	if entry.Type != types.String {
 		db.logger.Error("IncrBy type mismatch", "key", key, "type", entry.Type)
 		return 0, ErrInvalidType
 	}
@@ -470,7 +453,7 @@ func (db *DB) LPush(ctx context.Context, key string, values ...interface{}) erro
 	}
 
 	if exists {
-		if entry.Type != List {
+		if entry.Type != types.List {
 			db.logger.Error("LPush failed: existing key is not a list", "key", key)
 			return ErrInvalidType
 		}
@@ -486,9 +469,9 @@ func (db *DB) LPush(ctx context.Context, key string, values ...interface{}) erro
 		newList = append(newList, list...)
 		entry.Value = newList
 	} else {
-		entry = Entry{
+		entry = types.Entry{
 			Value:      reversed,
-			Type:       List,
+			Type:       types.List,
 			Expiration: time.Time{},
 		}
 	}
@@ -501,6 +484,7 @@ func (db *DB) LPush(ctx context.Context, key string, values ...interface{}) erro
 		"count", len(values))
 	return nil
 }
+
 func (db *DB) RPush(ctx context.Context, key string, values ...interface{}) error {
 	select {
 	case <-ctx.Done():
@@ -527,7 +511,7 @@ func (db *DB) RPush(ctx context.Context, key string, values ...interface{}) erro
 	}
 
 	if exists {
-		if entry.Type != List {
+		if entry.Type != types.List {
 			db.logger.Error("RPush failed: existing key is not a list", "key", key)
 			return ErrInvalidType
 		}
@@ -540,9 +524,9 @@ func (db *DB) RPush(ctx context.Context, key string, values ...interface{}) erro
 
 		entry.Value = append(list, values...)
 	} else {
-		entry = Entry{
+		entry = types.Entry{
 			Value:      values,
-			Type:       List,
+			Type:       types.List,
 			Expiration: time.Time{},
 		}
 	}
@@ -574,7 +558,7 @@ func (db *DB) LPop(ctx context.Context, key string) (interface{}, error) {
 		return nil, ErrKeyNotFound
 	}
 
-	if entry.Type != List {
+	if entry.Type != types.List {
 		db.logger.Error("LPop failed: existing key is not a list", "key", key)
 		return nil, ErrInvalidType
 	}
@@ -617,7 +601,7 @@ func (db *DB) RPop(ctx context.Context, key string) (interface{}, error) {
 		return nil, ErrKeyNotFound
 	}
 
-	if entry.Type != List {
+	if entry.Type != types.List {
 		db.logger.Error("RPop failed: existing key is not a list", "key", key)
 		return nil, ErrInvalidType
 	}
@@ -660,7 +644,7 @@ func (db *DB) LLen(ctx context.Context, key string) (int, error) {
 		return 0, ErrKeyNotFound
 	}
 
-	if entry.Type != List {
+	if entry.Type != types.List {
 		db.logger.Error("LLen failed: key is not a list", "key", key)
 		return 0, ErrInvalidType
 	}
@@ -694,7 +678,7 @@ func (db *DB) LRange(ctx context.Context, key string, start, end int) ([]interfa
 		return nil, ErrKeyNotFound
 	}
 
-	if entry.Type != List {
+	if entry.Type != types.List {
 		db.logger.Error("LRange failed: existing key is not a list", "key", key)
 		return nil, ErrInvalidType
 	}
@@ -731,6 +715,74 @@ func (db *DB) LRange(ctx context.Context, key string, start, end int) ([]interfa
 	return result, nil
 }
 
+func (db *DB) LTrim(ctx context.Context, key string, start, stop int) error {
+	select {
+	case <-ctx.Done():
+		db.logger.Warn("LTrim operation canceled", "key", key)
+		return ErrContextCanceled
+	default:
+	}
+
+	sh := db.shards[db.getShardIndex(key)]
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	entry, exists := sh.data[key]
+	if !exists || isExpired(entry) {
+		db.logger.Warn("LTrim failed: key not found or expired", "key", key)
+		return ErrKeyNotFound
+	}
+	if entry.Type != types.List {
+		db.logger.Error("LTrim failed: existing key is not a list", "key", key)
+		return ErrInvalidType
+	}
+
+	list, ok := entry.Value.([]interface{})
+	if !ok {
+		db.logger.Error("LTrim failed: stored value is not a valid list", "key", key)
+		return ErrInvalidType
+	}
+
+	length := len(list)
+
+	if start < 0 {
+		start = length + start
+	}
+	if stop < 0 {
+		stop = length + stop
+	}
+
+	if start < 0 {
+		start = 0
+	}
+	if stop >= length {
+		stop = length - 1
+	}
+
+	if start > stop || start >= length {
+		delete(sh.data, key)
+		db.logger.Info("LTrim removed the key because range is empty", "key", key)
+		return nil
+	}
+
+	newList := list[start : stop+1]
+	if len(newList) == 0 {
+		delete(sh.data, key)
+		db.logger.Info("LTrim removed the key because trimmed list is empty", "key", key)
+		return nil
+	}
+
+	entry.Value = newList
+	sh.data[key] = entry
+	db.logger.Info("LTrim operation successful",
+		"key", key,
+		"originalLength", length,
+		"newLength", len(newList),
+		"start", start,
+		"stop", stop)
+	return nil
+}
+
 func (db *DB) HSet(ctx context.Context, key string, field string, value interface{}, ttl int) error {
 	select {
 	case <-ctx.Done():
@@ -757,13 +809,13 @@ func (db *DB) HSet(ctx context.Context, key string, field string, value interfac
 	}
 
 	if !exists {
-		entry = Entry{
-			Type:       Hash,
+		entry = types.Entry{
+			Type:       types.Hash,
 			Value:      make(map[string]interface{}),
 			Expiration: expiration,
 		}
 	} else {
-		if entry.Type != Hash {
+		if entry.Type != types.Hash {
 			db.logger.Error("HSet failed: existing key is not a hash", "key", key)
 			return ErrInvalidType
 		}
@@ -775,9 +827,9 @@ func (db *DB) HSet(ctx context.Context, key string, field string, value interfac
 	hash := entry.Value.(map[string]interface{})
 	hash[field] = value
 
-	sh.data[key] = Entry{
+	sh.data[key] = types.Entry{
 		Value:      hash,
-		Type:       Hash,
+		Type:       types.Hash,
 		Expiration: expiration,
 	}
 
@@ -803,7 +855,7 @@ func (db *DB) HGet(ctx context.Context, key string, field string) (interface{}, 
 		return nil, ErrKeyNotFound
 	}
 
-	if entry.Type != Hash {
+	if entry.Type != types.Hash {
 		db.logger.Error("HGet failed: existing key is not a hash", "key", key)
 		return nil, ErrInvalidType
 	}
@@ -837,7 +889,7 @@ func (db *DB) HDel(ctx context.Context, key string, field string) error {
 		return ErrKeyNotFound
 	}
 
-	if entry.Type != Hash {
+	if entry.Type != types.Hash {
 		db.logger.Error("HDel failed: existing key is not a hash", "key", key)
 		return ErrInvalidType
 	}
@@ -874,7 +926,7 @@ func (db *DB) HGetAll(ctx context.Context, key string) (map[string]interface{}, 
 		return nil, ErrKeyNotFound
 	}
 
-	if entry.Type != Hash {
+	if entry.Type != types.Hash {
 		db.logger.Error("HGetAll failed: existing key is not a hash", "key", key)
 		return nil, ErrInvalidType
 	}
@@ -906,7 +958,7 @@ func (db *DB) HExists(ctx context.Context, key string, field string) (bool, erro
 		return false, ErrKeyNotFound
 	}
 
-	if entry.Type != Hash {
+	if entry.Type != types.Hash {
 		db.logger.Error("HExists failed: key is not a hash", "key", key)
 		return false, ErrInvalidType
 	}
@@ -940,7 +992,7 @@ func (db *DB) HLen(ctx context.Context, key string) (int, error) {
 		return 0, ErrKeyNotFound
 	}
 
-	if entry.Type != Hash {
+	if entry.Type != types.Hash {
 		db.logger.Error("HLen failed: key is not a hash", "key", key)
 		return 0, ErrInvalidType
 	}
@@ -956,6 +1008,234 @@ func (db *DB) HLen(ctx context.Context, key string) (int, error) {
 	return length, nil
 }
 
+func (db *DB) SAdd(ctx context.Context, key string, members ...interface{}) error {
+	select {
+	case <-ctx.Done():
+		db.logger.Warn("SAdd operation canceled", "key", key)
+		return ErrContextCanceled
+	default:
+	}
+
+	if key == "" {
+		db.logger.Error("SAdd failed: empty key")
+		return ErrInvalidKey
+	}
+	if len(members) == 0 {
+		db.logger.Warn("SAdd called with no members", "key", key)
+		return ErrEmptyValues
+	}
+
+	sh := db.shards[db.getShardIndex(key)]
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	entry, exists := sh.data[key]
+
+	if exists && isExpired(entry) {
+		delete(sh.data, key)
+		exists = false
+		db.logger.Info("SAdd removed expired key before adding members", "key", key)
+	}
+
+	if !exists {
+		newSet := make(map[interface{}]struct{}, len(members))
+		for _, m := range members {
+			newSet[m] = struct{}{}
+		}
+		sh.data[key] = types.Entry{
+			Value:      newSet,
+			Type:       types.Set,
+			Expiration: time.Time{},
+		}
+		db.logger.Info("SAdd created new set", "key", key, "members", members)
+		return nil
+	}
+
+	if entry.Type != types.Set {
+		db.logger.Error("SAdd failed: existing key is not a set", "key", key)
+		return ErrInvalidType
+	}
+
+	setVal, ok := entry.Value.(map[interface{}]struct{})
+	if !ok {
+		db.logger.Error("SAdd failed: stored value is not a valid set map", "key", key)
+		return ErrInvalidType
+	}
+
+	for _, m := range members {
+		setVal[m] = struct{}{}
+	}
+	sh.data[key] = entry
+
+	db.logger.Info("SAdd operation successful",
+		"key", key,
+		"addedCount", len(members))
+	return nil
+}
+
+func (db *DB) SRem(ctx context.Context, key string, members ...interface{}) error {
+	select {
+	case <-ctx.Done():
+		db.logger.Warn("SRem operation canceled", "key", key)
+		return ErrContextCanceled
+	default:
+	}
+
+	if len(members) == 0 {
+		db.logger.Warn("SRem called with no members", "key", key)
+		return ErrEmptyValues
+	}
+
+	sh := db.shards[db.getShardIndex(key)]
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	entry, exists := sh.data[key]
+	if !exists || isExpired(entry) {
+		db.logger.Warn("SRem failed: key not found or expired", "key", key)
+		return ErrKeyNotFound
+	}
+
+	if entry.Type != types.Set {
+		db.logger.Error("SRem failed: existing key is not a set", "key", key)
+		return ErrInvalidType
+	}
+
+	setVal, ok := entry.Value.(map[interface{}]struct{})
+	if !ok {
+		db.logger.Error("SRem failed: stored value is not a valid set map", "key", key)
+		return ErrInvalidType
+	}
+
+	for _, m := range members {
+		delete(setVal, m)
+	}
+
+	if len(setVal) == 0 {
+		delete(sh.data, key)
+		db.logger.Info("SRem removed key because set is empty", "key", key)
+		return nil
+	}
+
+	sh.data[key] = entry
+	db.logger.Info("SRem operation successful",
+		"key", key,
+		"removedCount", len(members))
+	return nil
+}
+
+func (db *DB) SMembers(ctx context.Context, key string) ([]interface{}, error) {
+	select {
+	case <-ctx.Done():
+		db.logger.Warn("SMembers operation canceled", "key", key)
+		return nil, ErrContextCanceled
+	default:
+	}
+
+	sh := db.shards[db.getShardIndex(key)]
+	sh.mu.RLock()
+	defer sh.mu.RUnlock()
+
+	entry, exists := sh.data[key]
+	if !exists || isExpired(entry) {
+		db.logger.Warn("SMembers failed: key not found or expired", "key", key)
+		return nil, ErrKeyNotFound
+	}
+
+	if entry.Type != types.Set {
+		db.logger.Error("SMembers failed: existing key is not a set", "key", key)
+		return nil, ErrInvalidType
+	}
+
+	setVal, ok := entry.Value.(map[interface{}]struct{})
+	if !ok {
+		db.logger.Error("SMembers failed: stored value is not a valid set map", "key", key)
+		return nil, ErrInvalidType
+	}
+
+	result := make([]interface{}, 0, len(setVal))
+	for m := range setVal {
+		result = append(result, m)
+	}
+	db.logger.Info("SMembers operation successful",
+		"key", key,
+		"count", len(result))
+	return result, nil
+}
+
+func (db *DB) SIsMember(ctx context.Context, key string, member interface{}) (bool, error) {
+	select {
+	case <-ctx.Done():
+		db.logger.Warn("SIsMember operation canceled", "key", key)
+		return false, ErrContextCanceled
+	default:
+	}
+
+	sh := db.shards[db.getShardIndex(key)]
+	sh.mu.RLock()
+	defer sh.mu.RUnlock()
+
+	entry, exists := sh.data[key]
+	if !exists || isExpired(entry) {
+		db.logger.Warn("SIsMember failed: key not found or expired", "key", key)
+		return false, ErrKeyNotFound
+	}
+
+	if entry.Type != types.Set {
+		db.logger.Error("SIsMember failed: existing key is not a set", "key", key)
+		return false, ErrInvalidType
+	}
+
+	setVal, ok := entry.Value.(map[interface{}]struct{})
+	if !ok {
+		db.logger.Error("SIsMember failed: stored value is not a valid set map", "key", key)
+		return false, ErrInvalidType
+	}
+
+	_, found := setVal[member]
+	db.logger.Info("SIsMember check",
+		"key", key,
+		"member", member,
+		"exists", found)
+	return found, nil
+}
+
+func (db *DB) SCard(ctx context.Context, key string) (int, error) {
+	select {
+	case <-ctx.Done():
+		db.logger.Warn("SCard operation canceled", "key", key)
+		return 0, ErrContextCanceled
+	default:
+	}
+
+	sh := db.shards[db.getShardIndex(key)]
+	sh.mu.RLock()
+	defer sh.mu.RUnlock()
+
+	entry, exists := sh.data[key]
+	if !exists || isExpired(entry) {
+		db.logger.Warn("SCard failed: key not found or expired", "key", key)
+		return 0, ErrKeyNotFound
+	}
+
+	if entry.Type != types.Set {
+		db.logger.Error("SCard failed: existing key is not a set", "key", key)
+		return 0, ErrInvalidType
+	}
+
+	setVal, ok := entry.Value.(map[interface{}]struct{})
+	if !ok {
+		db.logger.Error("SCard failed: stored value is not a valid set map", "key", key)
+		return 0, ErrInvalidType
+	}
+
+	cardinality := len(setVal)
+	db.logger.Info("SCard operation successful",
+		"key", key,
+		"cardinality", cardinality)
+	return cardinality, nil
+}
+
 func (db *DB) Exists(ctx context.Context, key string) (bool, error) {
 	select {
 	case <-ctx.Done():
@@ -969,12 +1249,8 @@ func (db *DB) Exists(ctx context.Context, key string) (bool, error) {
 	defer sh.mu.RUnlock()
 
 	entry, exists := sh.data[key]
-	if !exists {
-		db.logger.Info("Exists check: key does not exist", "key", key)
-		return false, nil
-	}
-	if isExpired(entry) {
-		db.logger.Info("Exists check: key is expired", "key", key)
+	if !exists || isExpired(entry) {
+		db.logger.Info("Exists check: key not found or expired", "key", key)
 		return false, nil
 	}
 
@@ -1002,7 +1278,7 @@ func (db *DB) Expire(ctx context.Context, key string, ttl int) (bool, error) {
 
 	entry, exists := sh.data[key]
 	if !exists || isExpired(entry) {
-		return false, nil
+		return false, ErrKeyNotFound
 	}
 
 	entry.Expiration = expiration
@@ -1025,7 +1301,7 @@ func (db *DB) Persist(ctx context.Context, key string) (bool, error) {
 
 	entry, exists := sh.data[key]
 	if !exists || isExpired(entry) {
-		return false, nil
+		return false, ErrKeyNotFound
 	}
 
 	if entry.Expiration.IsZero() {
@@ -1073,14 +1349,9 @@ func (db *DB) GetWithDetails(ctx context.Context, key string) (interface{}, int,
 	defer sh.mu.RUnlock()
 
 	entry, exists := sh.data[key]
-	if !exists {
-		db.logger.Warn("GetWithDetails failed: key not found", "key", key)
+	if !exists || isExpired(entry) {
+		db.logger.Warn("GetWithDetails failed: key not found or expired", "key", key)
 		return nil, 0, ErrKeyNotFound
-	}
-
-	if isExpired(entry) {
-		db.logger.Info("GetWithDetails: key is expired", "key", key)
-		return nil, 0, ErrKeyExpired
 	}
 
 	var ttl int
@@ -1220,6 +1491,41 @@ func (db *DB) DropAll(ctx context.Context) error {
 		sh.mu.Unlock()
 	}
 	db.logger.Info("DropAll operation completed: all keys removed")
+	return nil
+}
+
+func (db *DB) GetRawEntry(ctx context.Context, key string) (types.Entry, error) {
+	select {
+	case <-ctx.Done():
+		db.logger.Warn("GetRawEntry canceled by context", "key", key)
+		return types.Entry{}, ErrContextCanceled
+	default:
+	}
+
+	sh := db.shards[db.getShardIndex(key)]
+	sh.mu.RLock()
+	defer sh.mu.RUnlock()
+
+	entry, exists := sh.data[key]
+	if !exists || isExpired(entry) {
+		return types.Entry{}, ErrKeyNotFound
+	}
+	return entry, nil
+}
+
+func (db *DB) RestoreRawEntry(ctx context.Context, key string, e types.Entry) error {
+	select {
+	case <-ctx.Done():
+		db.logger.Warn("RestoreRawEntry canceled by context", "key", key)
+		return ErrContextCanceled
+	default:
+	}
+
+	sh := db.shards[db.getShardIndex(key)]
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	sh.data[key] = e
 	return nil
 }
 
